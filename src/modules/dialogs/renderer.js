@@ -7,6 +7,8 @@ export class DialogRenderer {
     this.onPause = onPause;
     this.onStop = onStop;
     this.onExport = onExport;
+    this.exporting = false;
+    this.exportEncrypted = false;
     this.unsubscribers = [];
   }
 
@@ -34,7 +36,7 @@ export class DialogRenderer {
     this.pauseButton = this.root.querySelector('[data-pause]');
     this.stopButton = this.root.querySelector('[data-stop]');
     this.collectButton.addEventListener('click', () => this.run(this.onCollect));
-    this.exportButton.addEventListener('click', () => this.run(this.onExport));
+    this.exportButton.addEventListener('click', () => this.runExport());
     this.pauseButton.addEventListener('click', this.onPause);
     this.stopButton.addEventListener('click', this.onStop);
     this.unsubscribers.push(this.collector.events.on('dialogs:progress', (stats) => this.update(stats)));
@@ -54,6 +56,43 @@ export class DialogRenderer {
     try { await action(); } catch (error) { this.showError(error.message || String(error)); }
   }
 
+  async runExport() {
+    if (this.exporting) return;
+    this.exporting = true;
+    this.showError('');
+    this.exportButton.disabled = true;
+    this.collectButton.disabled = true;
+    this.root.toggleAttribute('data-exporting', true);
+    try { await this.onExport((detail) => this.showExportProgress(detail)); }
+    catch (error) { this.showError(error.message || String(error)); }
+    finally {
+      this.exporting = false;
+      this.root.toggleAttribute('data-exporting', false);
+      this.setExportFormat(this.exportEncrypted);
+      this.exportButton.disabled = this.collector.store.stats().count === 0;
+      this.collectButton.disabled = Boolean(this.collector.collection.active);
+      setTimeout(() => { if (!this.exporting) this.updateHealth(this.collector.store.stats(), this.collector.collection); }, 1800);
+    }
+  }
+
+  showExportProgress(detail) {
+    const health = this.root.querySelector('[data-health]');
+    health.dataset.state = detail.stage === 'complete' ? 'ok' : 'idle';
+    const mb = detail.bytes ? ` · ${(detail.bytes / 1_048_576).toFixed(1)} МБ` : '';
+    const labels = {
+      preparing: 'Подготовка данных…',
+      building: `Упаковка архива${mb}…`,
+      encrypting: `Шифрование архива${mb}…`,
+      downloading: `Подготовка скачивания${mb}…`,
+      complete: `Готово · скачан один архив${mb}`,
+    };
+    health.textContent = detail.stage === 'media'
+      ? `Вложения ${detail.current}/${detail.total} · скачано ${detail.downloaded}${mb}`
+      : labels[detail.stage] || 'Экспорт…';
+    if (detail.stage === 'media') this.exportButton.textContent = detail.total ? `${Math.round((detail.current / detail.total) * 100)}%` : '…';
+    else this.exportButton.textContent = detail.stage === 'complete' ? '✓' : '…';
+  }
+
   update(stats) {
     if (!this.root) return;
     const snapshot = this.collector.snapshot();
@@ -66,16 +105,19 @@ export class DialogRenderer {
     const textBytes = snapshot.messages.reduce((sum, message) => sum + utf8Encoder.encode(message.text || '').length, 0);
     this.root.querySelector('[data-size]').textContent = textBytes < 1_000_000 ? `${Math.ceil(textBytes / 1024)} КБ` : `${(textBytes / 1_048_576).toFixed(1)} МБ`;
     this.updateHealth(stats, snapshot.collection);
-    this.exportButton.disabled = stats.count === 0;
+    this.exportButton.disabled = this.exporting || stats.count === 0;
   }
 
   setExportFormat(encrypted) {
     if (!this.exportButton) return;
+    this.exportEncrypted = encrypted;
+    if (this.exporting) return;
     this.exportButton.textContent = encrypted ? 'VKT' : 'ZIP';
     this.exportButton.title = encrypted ? 'Зашифрованный архив .vkt' : 'Обычный ZIP-архив';
   }
 
   updateHealth(stats, collection) {
+    if (this.exporting) return;
     const health = this.root.querySelector('[data-health]');
     if (collection?.active) {
       health.dataset.state = collection.paused ? 'warn' : 'idle';

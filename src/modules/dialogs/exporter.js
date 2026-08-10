@@ -2,7 +2,8 @@ import { encryptBytes } from '../../core/encryption.js';
 
 const encoder = new TextEncoder();
 
-export async function exportDialog(snapshot, { logger, settings = {}, incrementalFrom = null, password = '' } = {}) {
+export async function exportDialog(snapshot, { logger, settings = {}, incrementalFrom = null, password = '', onProgress } = {}) {
+  notifyProgress(onProgress, { stage: 'preparing' });
   snapshot = prepareSnapshot(snapshot, settings, incrementalFrom);
   if (!snapshot.messages.length) throw new Error(incrementalFrom == null ? 'Нет сообщений для экспорта' : 'Новых сообщений после прошлого экспорта нет');
   const folder = 'VK Dialog Export/';
@@ -17,20 +18,28 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
     { name: `${folder}dialog.html`, data: asHtml(snapshot.messages, snapshot.peerId) },
     { name: `${folder}media/`, data: new Uint8Array() },
   ];
-  const media = await appendMedia(entries, dialog, folder, logger);
+  const media = await appendMedia(entries, dialog, folder, logger, onProgress);
+  notifyProgress(onProgress, { stage: 'building', downloaded: media.downloaded, total: media.discovered, bytes: media.totalBytes });
   entries.push({ name: `${folder}viewer.html`, data: asViewer(snapshot.messages, snapshot, media.files) });
   const verificationTarget = await archiveManifest(snapshot, entries, media);
   entries.push({ name: `${folder}verify.html`, data: asVerifier(verificationTarget) });
   entries.push({ name: `${folder}archive.json`, data: pretty(await archiveManifest(snapshot, entries, media)) });
   const zip = createZip(entries);
   const encrypted = Boolean(settings.encrypt);
+  if (encrypted) notifyProgress(onProgress, { stage: 'encrypting', bytes: zip.length });
   const output = encrypted ? await encryptBytes(zip, password) : zip;
+  notifyProgress(onProgress, { stage: 'downloading', bytes: output.length });
   const blob = new Blob([output], { type: encrypted ? 'application/octet-stream' : 'application/zip' });
   const url = URL.createObjectURL(blob);
   const link = Object.assign(document.createElement('a'), { href: url, download: archiveFileName(snapshot).replace(/\.zip$/, encrypted ? '.vkt' : '.zip') });
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  notifyProgress(onProgress, { stage: 'complete', bytes: output.length, downloaded: media.downloaded, total: media.discovered });
   return { count: snapshot.messages.length, maxCmid: snapshot.stats.max };
+}
+
+function notifyProgress(callback, detail) {
+  try { callback?.(detail); } catch { /* UI progress must not interrupt an export. */ }
 }
 
 function prepareSnapshot(snapshot, settings, incrementalFrom) {
@@ -174,14 +183,16 @@ function inferMediaType(url) {
 }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 
-async function appendMedia(entries, messages, folder, logger) {
+async function appendMedia(entries, messages, folder, logger, onProgress) {
   const maxTotalBytes = 200_000_000;
   const references = collectMediaReferences(messages);
   const report = { discovered: references.length, downloaded: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
+  notifyProgress(onProgress, { stage: 'media', current: 0, total: references.length, downloaded: 0, bytes: 0 });
   for (let index = 0; index < references.length; index++) {
     const reference = references[index];
     if (!isDirectMediaUrl(reference.url)) {
       report.unavailable.push({ ...reference, reason: reference.url ? 'Вложение доступно только как ссылка' : 'URL вложения не найден' });
+      notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, bytes: report.totalBytes });
       continue;
     }
     try {
@@ -197,6 +208,7 @@ async function appendMedia(entries, messages, folder, logger) {
       report.totalBytes += data.length;
       report.files.push({ ...reference, path, bytes: data.length, contentType });
     } catch (error) { report.unavailable.push({ ...reference, reason: error.message || String(error) }); logger?.warn('Media was left as a link', reference.url, error); }
+    notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, bytes: report.totalBytes });
   }
   return report;
 }

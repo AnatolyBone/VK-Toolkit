@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1
+
+### Added
+
+- Live export stages for preparation, media downloads, ZIP creation, encryption and browser download.
+- Attachment progress with processed count, downloaded count and current archive size.
+
+### Fixed
+
+- The export action is locked until completion, preventing repeated clicks from downloading duplicate archives.
+- A second defensive lock prevents concurrent exports even if the UI state changes while VK updates the page.
+
 ## 0.5.0
 
 ### Added
