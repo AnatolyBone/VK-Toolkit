@@ -1,24 +1,25 @@
-# Development
+# Разработка
 
-## Architecture
+Проект не требует сборщика или внешних зависимостей. Используются нативные ES modules, загруженные из content script динамически.
 
-VK Toolkit is built as a modular browser extension.
+## Новый модуль
 
-Each feature should be isolated inside a module with:
+1. Создайте каталог `src/modules/<id>` и объект Module API в `module.js`.
+2. Импортируйте и зарегистрируйте модуль в `src/runtime.js`.
+3. Добавьте переключатель в popup и значение по умолчанию.
+4. В `destroy()` удалите все listeners, observers, timers и DOM.
+5. Не смешивайте VK-парсинг, хранение данных и отображение.
 
-- id
-- name
-- settings
-- init()
-- destroy()
+## Проверка
 
-## Guidelines
+Перед выпуском:
 
-- Do not mix UI tweaks with data collection.
-- Keep VK-specific selectors isolated.
-- Avoid external servers for user data.
-- Prefer local storage.
+1. Проверьте JSON manifest и синтаксис всех JS-файлов.
+2. Загрузите корень как unpacked extension в Chrome.
+3. Убедитесь, что popup открывается без ошибок.
+4. На `vk.ru` и `vk.com` включите и выключите каждый модуль.
+5. Откройте диалог, запустите сбор и проверьте статистику CMID.
+6. Распакуйте ZIP и проверьте все четыре документа и каталог `media`.
+7. Проверьте, что после отключения модуля его UI и обработчики исчезли.
 
-## Future
-
-The project may move to a build system when the number of modules grows.
+VK меняет DOM без уведомления, поэтому селекторы должны иметь несколько fallback-вариантов. Приоритет источников сообщений всегда network → DOM.

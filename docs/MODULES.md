@@ -1,42 +1,19 @@
-# VK Toolkit Modules
-
-## Core
-
-Shared services:
-
-- storage
-- settings
-- module lifecycle
-- events
+# Модули VK Toolkit
 
 ## Dialogs
 
-Export and analyze VK conversations:
+`networkBridge` копирует ответы подходящих VK `fetch`/XHR. `parser` нормализует найденные сообщения, а `collector` сначала принимает network-данные и дополняет их DOM fallback. `MessageStore` заменяет DOM-версию сообщения network-версией при совпадении ключа.
 
-- full history loading
-- canonical message collection
-- HTML/JSON/TXT export
-- analysis export
+Основной ключ — `conversation_message_id`; fallback — `peer_id + date + text`. Полный сбор прокручивает контейнер вверх и завершается после пяти циклов без изменения количества и минимального CMID. Экспорт создаёт ZIP с `dialog.json`, `analysis.json`, `dialog.html`, `dialog.txt` и `media/`. Недоступные медиа остаются ссылками в представлениях.
 
 ## Debug
 
-Developer utilities:
-
-- peer_id
-- message IDs
-- CMID inspection
+Показывает tooltip с CMID, глобальным ID, peer и датой для DOM-узла сообщения. Настройка `debug.showMessageIds` применяется сразу.
 
 ## Photos
 
-Image helpers:
-
-- original image links
-- media tools
+Следит за фотопросмотрщиком, анализирует `srcset` и URL, выбирает кандидат максимального размера и показывает безопасную внешнюю ссылку.
 
 ## UI
 
-Interface customization:
-
-- hide unwanted blocks
-- custom CSS
-- layout tweaks
+Отдельные CSS-функции скрывают клипы и истории, уплотняют левое меню и добавляют пользовательский CSS. Изменения popup применяются сразу.
