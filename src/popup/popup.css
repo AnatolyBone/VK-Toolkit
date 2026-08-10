@@ -1,0 +1,9 @@
+body {
+  min-width: 260px;
+  font-family: Arial, sans-serif;
+  padding: 12px;
+}
+label {
+  display: block;
+  margin: 8px 0;
+}
