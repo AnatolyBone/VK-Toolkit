@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.3
+
+### Added
+
+- Independent `downloadMedia` option for fast dialog exports.
+- Link-only mode keeps attachment metadata and original URLs without downloading binary files.
+
+### Changed
+
+- Popup now distinguishes preserving attachment links from downloading media into the offline archive.
+- `archive.json` explicitly marks exports where media downloading was skipped by user choice.
+
 ## 0.5.2
 
 ### Added

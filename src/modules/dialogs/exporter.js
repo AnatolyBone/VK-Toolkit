@@ -19,7 +19,9 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
     { name: `${folder}dialog.html`, data: asHtml(snapshot.messages, snapshot.peerId) },
     { name: `${folder}media/`, data: new Uint8Array() },
   ];
-  const media = await appendMedia(entries, dialog, folder, logger, onProgress, signal);
+  const media = settings.downloadMedia === false
+    ? skipMediaDownloads(dialog, onProgress)
+    : await appendMedia(entries, dialog, folder, logger, onProgress, signal);
   throwIfAborted(signal);
   notifyProgress(onProgress, { stage: 'building', downloaded: media.downloaded, total: media.discovered, bytes: media.totalBytes });
   entries.push({ name: `${folder}viewer.html`, data: asViewer(snapshot.messages, snapshot, media.files) });
@@ -229,6 +231,20 @@ function collectMediaReferences(messages) {
     } else unique.set(key, { ...info, cmids: cmid == null ? [] : [cmid] });
   }
   return [...unique.values()];
+}
+
+function skipMediaDownloads(messages, onProgress) {
+  const references = collectMediaReferences(messages);
+  notifyProgress(onProgress, { stage: 'media-skipped', total: references.length, downloaded: 0, bytes: 0 });
+  return {
+    discovered: references.length,
+    downloaded: 0,
+    totalBytes: 0,
+    limitBytes: 200_000_000,
+    downloadSkipped: true,
+    files: [],
+    unavailable: references.map((reference) => ({ ...reference, reason: 'Скачивание медиа отключено в настройках; сохранена исходная ссылка' })),
+  };
 }
 
 function mediaPath(reference, index, extension) {

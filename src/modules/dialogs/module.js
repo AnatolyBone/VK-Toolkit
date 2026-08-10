@@ -21,7 +21,7 @@ export default {
       if (exportInProgress) throw new Error('Экспорт уже выполняется');
       exportInProgress = true;
       try {
-      const settings = await ctx.storage.get('dialogs', { incremental: false, anonymize: false, includeAttachments: true, encrypt: false });
+      const settings = await ctx.storage.get('dialogs', { incremental: false, anonymize: false, includeAttachments: true, downloadMedia: true, encrypt: false });
       let password = '';
       if (settings.encrypt) {
         password = window.prompt('Придумайте пароль для этого архива .vkt.\n\nVK Toolkit не сохраняет пароль — он понадобится вам при расшифровке:') || '';

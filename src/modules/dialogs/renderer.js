@@ -100,6 +100,7 @@ export class DialogRenderer {
     const mb = detail.bytes ? ` · ${(detail.bytes / 1_048_576).toFixed(1)} МБ` : '';
     const labels = {
       preparing: 'Подготовка данных…',
+      'media-skipped': `Быстрый экспорт · ${detail.total || 0} вложений оставлены ссылками`,
       building: `Упаковка архива${mb}…`,
       encrypting: `Шифрование архива${mb}…`,
       downloading: `Подготовка скачивания${mb}…`,
