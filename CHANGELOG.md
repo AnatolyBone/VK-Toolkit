@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0
+
+### Added
+
+- Replies, forwarded messages, reactions and service-message metadata from VK network responses.
+- Reply and forwarded-message context plus reaction counters in the offline viewer.
+- `failed-media.json` with every unavailable attachment URL and failure reason.
+- `diagnostics.json` with DOM/network source counts, contextual-message counts and media results.
+
+### Changed
+
+- React message extraction retains attachments and contextual fields instead of replacing attachments with an empty list.
+- Search in `viewer.html` includes reply and forwarded-message text.
+- Archive manifest schema advanced to version 5.
+
 ## 0.10.0
 
 ### Added

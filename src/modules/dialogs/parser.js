@@ -122,6 +122,10 @@ export function parseNetworkPayload(payload) {
       peer_id: value.peer_id ?? value.peerId ?? getPeerId(),
       author: value.author || profiles.get(Number(fromId)) || String(fromId || ''),
       attachments: value.attachments || [],
+      reply: normalizeRelated(value.reply_message ?? value.replyMessage, profiles),
+      forwarded: (Array.isArray(value.fwd_messages ?? value.fwdMessages) ? (value.fwd_messages ?? value.fwdMessages) : []).map((item) => normalizeRelated(item, profiles)).filter(Boolean),
+      reactions: normalizeReactions(value.reactions),
+      service: normalizeService(value.action),
     }, 'network'));
   });
   return found;
@@ -139,8 +143,45 @@ export function normalizeMessage(message, source = 'unknown') {
     author: String(message.author || ''),
     text: String(message.text || '').trim(),
     attachments: Array.isArray(message.attachments) ? message.attachments : [],
+    reply: message.reply || null,
+    forwarded: Array.isArray(message.forwarded) ? message.forwarded : [],
+    reactions: Array.isArray(message.reactions) ? message.reactions : [],
+    service: message.service || null,
     source,
   };
+}
+
+function normalizeRelated(value, profiles, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 2) return null;
+  const fromId = value.from_id ?? value.fromId ?? value.sender_id;
+  return {
+    id: numberFrom(value.id ?? value.message_id ?? value.messageId),
+    conversation_message_id: numberFrom(value.conversation_message_id ?? value.conversationMessageId ?? value.cmid),
+    date: normalizeDate(value.date ?? value.timestamp),
+    author: String(value.author || profiles.get(Number(fromId)) || fromId || ''),
+    text: String(value.text || '').trim(),
+    attachments: Array.isArray(value.attachments) ? value.attachments : [],
+    forwarded: depth < 2 && Array.isArray(value.fwd_messages ?? value.fwdMessages) ? (value.fwd_messages ?? value.fwdMessages).map((item) => normalizeRelated(item, profiles, depth + 1)).filter(Boolean) : [],
+  };
+}
+
+function normalizeReactions(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => ({
+    id: item?.reaction_id ?? item?.reactionId ?? item?.id ?? item?.emoji ?? '',
+    count: Number(item?.count ?? item?.users_count ?? item?.usersCount ?? 0),
+    userIds: Array.isArray(item?.user_ids ?? item?.userIds) ? (item.user_ids ?? item.userIds).map(Number).filter(Number.isFinite) : [],
+  })).filter((item) => item.id !== '' || item.count > 0);
+}
+
+function normalizeService(value) {
+  if (!value || typeof value !== 'object') return null;
+  return { type: String(value.type || ''), memberId: numberFrom(value.member_id ?? value.memberId), text: String(value.text || value.email || '') };
+}
+
+function normalizeDate(rawDate) {
+  const parsed = typeof rawDate === 'number' ? new Date(rawDate * (rawDate < 1e12 ? 1000 : 1)) : new Date(rawDate || NaN);
+  return Number.isNaN(parsed.valueOf()) ? String(rawDate || '') : parsed.toISOString();
 }
 
 function buildProfiles(data) {

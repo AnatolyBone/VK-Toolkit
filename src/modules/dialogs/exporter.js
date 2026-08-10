@@ -11,7 +11,7 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
   if (!snapshot.messages.length) throw new Error(incrementalFrom == null ? 'Нет сообщений для экспорта' : 'Новых сообщений после прошлого экспорта нет');
   const folder = 'VK Dialog Export/';
   const dialog = snapshot.messages.map(publicMessage);
-  const analysis = dialog.map(({ date, author, text }) => ({ date, author, text, type: 'message' }));
+  const analysis = dialog.map(({ date, author, text, reply, forwarded, reactions, service }) => ({ date, author, text, type: service ? 'service' : 'message', reply, forwarded, reactions, service }));
   const analytics = buildAnalytics(dialog);
   const entries = [
     { name: `${folder}dialog.json`, data: pretty(dialog) },
@@ -24,6 +24,8 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
   const media = settings.downloadMedia === false
     ? skipMediaDownloads(dialog, onProgress)
     : await appendMedia(entries, dialog, folder, logger, onProgress, signal);
+  entries.push({ name: `${folder}failed-media.json`, data: pretty(media.unavailable) });
+  entries.push({ name: `${folder}diagnostics.json`, data: pretty(buildDiagnostics(snapshot, dialog, media)) });
   throwIfAborted(signal);
   notifyProgress(onProgress, { stage: 'building', downloaded: media.downloaded, total: media.discovered, bytes: media.totalBytes });
   entries.push({ name: `${folder}viewer.html`, data: asViewer(snapshot.messages, snapshot, media.files) });
@@ -71,8 +73,14 @@ function prepareSnapshot(snapshot, settings, incrementalFrom) {
       copy.id = null;
       copy.peer_id = null;
       copy.attachments = [];
+      copy.reply = anonymizeRelated(copy.reply, aliases);
+      copy.forwarded = (copy.forwarded || []).map((item) => anonymizeRelated(item, aliases));
     }
-    if (settings.includeAttachments === false) copy.attachments = [];
+    if (settings.includeAttachments === false) {
+      copy.attachments = [];
+      copy.reply = stripRelatedAttachments(copy.reply);
+      copy.forwarded = (copy.forwarded || []).map(stripRelatedAttachments);
+    }
     return copy;
   });
   const coverage = analyzeCmids(messages);
@@ -91,7 +99,7 @@ async function archiveManifest(snapshot, entries, media) {
     files.push({ path: entry.name.replace(/^VK Dialog Export\//, ''), bytes: data.length, sha256: await sha256(data) });
   }
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     generator: { name: 'VK Toolkit', version: chrome.runtime.getManifest().version },
     exportedAt: new Date().toISOString(),
     peerId: snapshot.peerId,
@@ -147,7 +155,7 @@ async function sha256(data) {
 }
 
 function publicMessage(item) {
-  return { id: item.id, conversation_message_id: item.conversation_message_id, date: item.date, author: item.author, text: item.text, attachments: item.attachments };
+  return { id: item.id, conversation_message_id: item.conversation_message_id, date: item.date, author: item.author, text: item.text, attachments: item.attachments, reply: item.reply || null, forwarded: item.forwarded || [], reactions: item.reactions || [], service: item.service || null };
 }
 function pretty(value) { return JSON.stringify(value, null, 2); }
 function buildAnalytics(messages) {
@@ -160,6 +168,34 @@ function buildAnalytics(messages) {
   }
   const topWords = Object.entries(words).sort((a, b) => b[1] - a[1]).slice(0, 100).map(([word, count]) => ({ word, count }));
   return { messages: messages.length, authors, firstDate: messages[0]?.date || '', lastDate: messages.at(-1)?.date || '', attachments, messagesByDay: days, messagesByHour: hours, topWords };
+}
+
+function buildDiagnostics(snapshot, messages, media) {
+  const sources = {};
+  for (const message of snapshot.messages) sources[message.source || 'unknown'] = (sources[message.source || 'unknown'] || 0) + 1;
+  return {
+    generatedAt: new Date().toISOString(),
+    messages: messages.length,
+    sources,
+    context: {
+      replies: messages.filter((item) => item.reply).length,
+      forwardedMessages: messages.reduce((sum, item) => sum + (item.forwarded?.length || 0), 0),
+      messagesWithReactions: messages.filter((item) => item.reactions?.length).length,
+      serviceMessages: messages.filter((item) => item.service).length,
+    },
+    media: { discovered: media.discovered, downloaded: media.downloaded, unavailable: media.unavailable.length, retries: media.retries || 0 },
+  };
+}
+
+function anonymizeRelated(item, aliases) {
+  if (!item) return null;
+  const identity = item.author || 'unknown';
+  if (!aliases.has(identity)) aliases.set(identity, `Участник ${aliases.size + 1}`);
+  return { ...item, id: null, conversation_message_id: null, author: aliases.get(identity), attachments: [], forwarded: (item.forwarded || []).map((child) => anonymizeRelated(child, aliases)) };
+}
+
+function stripRelatedAttachments(item) {
+  return item ? { ...item, attachments: [], forwarded: (item.forwarded || []).map(stripRelatedAttachments) } : null;
 }
 function asText(messages) { return messages.map((m) => `[${m.date}] ${m.author || m.peer_id}: ${m.text}${attachmentText(m.attachments)}`).join('\n'); }
 function attachmentText(items) { return items?.length ? `\n  Вложения: ${items.map(attachmentUrl).filter(Boolean).join(', ')}` : ''; }
@@ -190,14 +226,16 @@ export function asViewer(messages, snapshot, mediaFiles = []) {
 
 function viewerDocument(title, payload) {
   return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title} · VK Toolkit</title><style>
-:root{color-scheme:light dark;--bg:#eef1f5;--card:#fff;--text:#1d2733;--muted:#6d7885;--accent:#447bba}body.dark{--bg:#151719;--card:#222529;--text:#edf0f3;--muted:#9ba3ad}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif}header{position:sticky;top:0;z-index:2;padding:16px;background:var(--card);box-shadow:0 1px 8px #0002}h1{max-width:1100px;margin:0 auto 10px;font-size:20px}.tools,.summary{display:flex;max-width:1100px;margin:auto;gap:8px;flex-wrap:wrap}.summary{margin-top:9px;color:var(--muted)}input,select,button{border:1px solid #8885;border-radius:8px;padding:8px;background:var(--bg);color:var(--text)}input{flex:1;min-width:190px}button{cursor:pointer}.messages{max-width:1100px;margin:16px auto;padding:0 12px}.message{margin:8px 0;padding:12px 14px;background:var(--card);border-radius:10px}.message header{position:static;display:flex;padding:0 0 5px;box-shadow:none;gap:8px}.message time,.cmid{color:var(--muted);font-size:12px}.cmid{margin-left:auto}.empty{text-align:center;color:var(--muted);padding:50px}.attachments{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px}.attachment{display:block;min-width:0;word-break:break-word;color:var(--accent)}img.attachment{width:100%;max-height:360px;object-fit:contain;background:#0001;border-radius:8px;cursor:zoom-in}audio.attachment,video.attachment{width:100%;max-height:420px}.file-card{padding:10px;background:var(--bg);border-radius:8px;text-decoration:none}.file-card small{display:block;color:var(--muted)}dialog{max-width:95vw;max-height:95vh;padding:0;border:0;background:transparent}dialog::backdrop{background:#000c}dialog img{display:block;max-width:92vw;max-height:90vh}dialog button{position:fixed;top:14px;right:18px;background:#222;color:#fff}</style>
+:root{color-scheme:light dark;--bg:#eef1f5;--card:#fff;--text:#1d2733;--muted:#6d7885;--accent:#447bba}body.dark{--bg:#151719;--card:#222529;--text:#edf0f3;--muted:#9ba3ad}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif}header{position:sticky;top:0;z-index:2;padding:16px;background:var(--card);box-shadow:0 1px 8px #0002}h1{max-width:1100px;margin:0 auto 10px;font-size:20px}.tools,.summary{display:flex;max-width:1100px;margin:auto;gap:8px;flex-wrap:wrap}.summary{margin-top:9px;color:var(--muted)}input,select,button{border:1px solid #8885;border-radius:8px;padding:8px;background:var(--bg);color:var(--text)}input{flex:1;min-width:190px}button{cursor:pointer}.messages{max-width:1100px;margin:16px auto;padding:0 12px}.message{margin:8px 0;padding:12px 14px;background:var(--card);border-radius:10px}.message header{position:static;display:flex;padding:0 0 5px;box-shadow:none;gap:8px}.message time,.cmid{color:var(--muted);font-size:12px}.cmid{margin-left:auto}.empty{text-align:center;color:var(--muted);padding:50px}.context{margin:7px 0;padding:7px 10px;border-left:3px solid var(--accent);background:var(--bg);color:var(--muted);border-radius:5px}.reactions{margin-top:6px;color:var(--muted)}.attachments{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px}.attachment{display:block;min-width:0;word-break:break-word;color:var(--accent)}img.attachment{width:100%;max-height:360px;object-fit:contain;background:#0001;border-radius:8px;cursor:zoom-in}audio.attachment,video.attachment{width:100%;max-height:420px}.file-card{padding:10px;background:var(--bg);border-radius:8px;text-decoration:none}.file-card small{display:block;color:var(--muted)}dialog{max-width:95vw;max-height:95vh;padding:0;border:0;background:transparent}dialog::backdrop{background:#000c}dialog img{display:block;max-width:92vw;max-height:90vh}dialog button{position:fixed;top:14px;right:18px;background:#222;color:#fff}</style>
 <header><h1>${title}</h1><div class="tools"><input id="search" placeholder="Поиск по сообщениям и файлам"><select id="author"><option value="">Все авторы</option></select><select id="kind"><option value="">Все сообщения</option><option value="with">С вложениями</option><option value="photo">Фото</option><option value="sticker">Стикеры</option><option value="voice">Голосовые</option><option value="audio">Аудио</option><option value="document">Документы</option><option value="video">Видео</option></select><input id="cmid" inputmode="numeric" placeholder="Перейти к CMID"><button id="theme">Тема</button></div><div class="summary" id="summary"></div></header><main class="messages" id="messages"></main><dialog id="lightbox"><button id="lightbox-close">Закрыть</button><img id="lightbox-image" alt="Просмотр вложения"></dialog>
 <script type="application/json" id="data">${payload}</script><script>(()=>{
 const data=JSON.parse(document.querySelector('#data').textContent),root=document.querySelector('#messages'),search=document.querySelector('#search'),author=document.querySelector('#author'),kind=document.querySelector('#kind'),cmid=document.querySelector('#cmid'),lightbox=document.querySelector('#lightbox'),lightboxImage=document.querySelector('#lightbox-image');
 [...new Set(data.map(x=>x.author).filter(Boolean))].sort().forEach(x=>author.add(new Option(x,x)));
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const context=(x,label)=>x?'<div class="context"><b>'+label+(x.author?' · '+esc(x.author):'')+'</b><div>'+esc(x.text||'').split(String.fromCharCode(10)).join('<br>')+'</div></div>':'';
+const reactionList=x=>(x.reactions||[]).length?'<div class="reactions">Реакции: '+x.reactions.map(r=>esc(r.id)+' × '+esc(r.count)).join(' · ')+'</div>':'';
 const media=v=>{const u=v.local||v.url||'',lower=u.toLowerCase().split('?')[0].split('#')[0],safe=u.startsWith('https://')||u.startsWith('media/'),has=extensions=>extensions.some(ext=>lower.endsWith(ext)),label=v.name||v.type||'Вложение';if(!safe)return'';if(v.type==='photo'||v.type==='sticker'||has(['.jpg','.jpeg','.png','.gif','.webp','.avif']))return'<img class="attachment" data-lightbox src="'+esc(u)+'" loading="lazy" alt="'+esc(label)+'">';if(v.type==='voice'||v.type==='audio'||has(['.mp3','.ogg','.m4a','.wav']))return'<audio class="attachment" controls preload="none" src="'+esc(u)+'"></audio>';if(v.type==='video'||has(['.mp4','.webm']))return'<video class="attachment" controls preload="metadata" src="'+esc(u)+'"></video>';return'<a class="attachment file-card" target="_blank" rel="noopener noreferrer" href="'+esc(u)+'"><b>'+esc(label)+'</b><small>'+(v.local?'Локальный файл':'Внешняя ссылка')+' · '+esc(v.type||'attachment')+'</small></a>'};
-function render(){const q=search.value.toLowerCase(),a=author.value,k=kind.value;const rows=data.filter(x=>{const items=x.attachments||[],hay=[x.text,x.author,...items.map(v=>v.name||v.url||'')].join(' ').toLowerCase();return(!q||hay.includes(q))&&(!a||x.author===a)&&(!k||(k==='with'?items.length:items.some(v=>v.type===k)))});root.innerHTML=rows.length?rows.map(x=>'<article class="message" data-cmid="'+(x.cmid??'')+'"><header><b>'+esc(x.author||'Без автора')+'</b><time>'+esc(x.date)+'</time><span class="cmid">CMID '+esc(x.cmid??'—')+'</span></header><div>'+esc(x.text).split(String.fromCharCode(10)).join('<br>')+'</div><div class="attachments">'+(x.attachments||[]).map(media).join('')+'</div></article>').join(''):'<div class="empty">Сообщения не найдены</div>';root.querySelectorAll('[data-lightbox]').forEach(img=>img.onclick=()=>{lightboxImage.src=img.src;lightbox.showModal()});document.querySelector('#summary').textContent='Показано '+rows.length+' из '+data.length+' · Вложений '+rows.reduce((n,x)=>n+(x.attachments||[]).length,0)+' · Авторов '+new Set(data.map(x=>x.author).filter(Boolean)).size;}
+function render(){const q=search.value.toLowerCase(),a=author.value,k=kind.value;const rows=data.filter(x=>{const items=x.attachments||[],hay=[x.text,x.author,x.reply?.text,...(x.forwarded||[]).map(v=>v.text),...items.map(v=>v.name||v.url||'')].join(' ').toLowerCase();return(!q||hay.includes(q))&&(!a||x.author===a)&&(!k||(k==='with'?items.length:items.some(v=>v.type===k)))});root.innerHTML=rows.length?rows.map(x=>'<article class="message" data-cmid="'+(x.cmid??'')+'"><header><b>'+esc(x.author||'Без автора')+'</b><time>'+esc(x.date)+'</time><span class="cmid">CMID '+esc(x.cmid??'—')+'</span></header>'+context(x.reply,'Ответ')+(x.forwarded||[]).map(v=>context(v,'Переслано')).join('')+'<div>'+esc(x.text).split(String.fromCharCode(10)).join('<br>')+'</div>'+reactionList(x)+'<div class="attachments">'+(x.attachments||[]).map(media).join('')+'</div></article>').join(''):'<div class="empty">Сообщения не найдены</div>';root.querySelectorAll('[data-lightbox]').forEach(img=>img.onclick=()=>{lightboxImage.src=img.src;lightbox.showModal()});document.querySelector('#summary').textContent='Показано '+rows.length+' из '+data.length+' · Вложений '+rows.reduce((n,x)=>n+(x.attachments||[]).length,0)+' · Авторов '+new Set(data.map(x=>x.author).filter(Boolean)).size;}
 search.oninput=author.onchange=kind.onchange=render;cmid.onchange=()=>{kind.value='';render();document.querySelector('[data-cmid="'+CSS.escape(cmid.value)+'"]')?.scrollIntoView({behavior:'smooth',block:'center'})};document.querySelector('#theme').onclick=()=>document.body.classList.toggle('dark');document.querySelector('#lightbox-close').onclick=()=>lightbox.close();lightbox.onclick=e=>{if(e.target===lightbox)lightbox.close()};render()})()</script></html>`;
 }
 function attachmentHtml(items = []) { return items.map((item) => { const url = attachmentUrl(item); return url ? `<p><a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>` : ''; }).join(''); }

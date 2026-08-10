@@ -11,6 +11,20 @@
   };
 
   const scanned = new WeakSet();
+  const compactRelated = (value, depth = 0) => {
+    if (!value || typeof value !== 'object' || depth > 2) return null;
+    const forwarded = value.fwd_messages ?? value.fwdMessages;
+    return {
+      id: value.id ?? value.message_id ?? value.messageId,
+      conversation_message_id: value.conversation_message_id ?? value.conversationMessageId ?? value.cmid,
+      date: value.date ?? value.timestamp,
+      from_id: value.from_id ?? value.fromId ?? value.sender_id,
+      author: typeof value.author === 'string' ? value.author : '',
+      text: typeof value.text === 'string' ? value.text : '',
+      attachments: Array.isArray(value.attachments) ? value.attachments : [],
+      fwd_messages: depth < 2 && Array.isArray(forwarded) ? forwarded.map((item) => compactRelated(item, depth + 1)).filter(Boolean) : [],
+    };
+  };
   const scanReactMessage = (element) => {
     if (!element || scanned.has(element)) return;
     scanned.add(element);
@@ -39,7 +53,11 @@
         from_id: value.from_id ?? value.fromId ?? value.sender_id,
         author: typeof value.author === 'string' ? value.author : '',
         text: typeof value.text === 'string' ? value.text : '',
-        attachments: [],
+        attachments: Array.isArray(value.attachments) ? value.attachments : [],
+        reply_message: compactRelated(value.reply_message ?? value.replyMessage),
+        fwd_messages: Array.isArray(value.fwd_messages ?? value.fwdMessages) ? (value.fwd_messages ?? value.fwdMessages).map((item) => compactRelated(item)).filter(Boolean) : [],
+        reactions: Array.isArray(value.reactions) ? value.reactions.map((item) => ({ reaction_id: item?.reaction_id ?? item?.reactionId ?? item?.id ?? item?.emoji, count: item?.count, user_ids: item?.user_ids ?? item?.userIds })) : [],
+        action: value.action && typeof value.action === 'object' ? { type: value.action.type, member_id: value.action.member_id ?? value.action.memberId, text: value.action.text || value.action.email } : null,
       });
       if (Array.isArray(value)) { for (const child of value) walk(child, depth + 1); return; }
       for (const [key, child] of Object.entries(value)) {
