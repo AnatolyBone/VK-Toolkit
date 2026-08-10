@@ -4,7 +4,7 @@
 
 `networkBridge` копирует ответы подходящих VK `fetch`/XHR. `parser` нормализует найденные сообщения, а `collector` сначала принимает network-данные и дополняет их DOM fallback. `MessageStore` заменяет DOM-версию сообщения network-версией при совпадении ключа.
 
-Основной ключ — `conversation_message_id`; fallback — `peer_id + date + text`. Полный сбор прокручивает контейнер вверх и завершается после пяти циклов без изменения количества и минимального CMID. Экспорт создаёт ZIP с `dialog.json`, `analysis.json`, `dialog.html`, `dialog.txt` и `media/`. Недоступные медиа остаются ссылками в представлениях.
+Основной ключ — `conversation_message_id`; fallback — `peer_id + date + text`. Полный сбор прокручивает контейнер вверх и завершается после пяти циклов без изменения количества и минимального CMID. Экспорт создаёт ZIP с `dialog.json`, `analysis.json`, `dialog.html`, `dialog.txt`, `archive.json` и `media/`. Имя ZIP включает название диалога и `peer_id`. `archive.json` содержит диапазон и отсутствующие CMID, источники сообщений и SHA-256 файлов. Недоступные медиа остаются ссылками в представлениях.
 
 ## Debug
 

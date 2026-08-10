@@ -27,9 +27,9 @@ export class MessageStore {
     const unique = new Set(cmids);
     const min = cmids.length ? Math.min(...cmids) : null;
     const max = cmids.length ? Math.max(...cmids) : null;
-    let gaps = 0;
-    if (min != null && max != null) for (let id = min; id <= max; id++) if (!unique.has(id)) gaps++;
-    return { count: this.messages.size, min, max, gaps };
+    const missingCmids = [];
+    if (min != null && max != null) for (let id = min; id <= max; id++) if (!unique.has(id)) missingCmids.push(id);
+    return { count: this.messages.size, min, max, gaps: missingCmids.length, missingCmids };
   }
 
   findFallback(message) {

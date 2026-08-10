@@ -13,11 +13,59 @@ export async function exportDialog(snapshot, { logger } = {}) {
     { name: `${folder}media/`, data: new Uint8Array() },
   ];
   await appendMedia(entries, dialog, folder, logger);
+  entries.push({ name: `${folder}archive.json`, data: pretty(await archiveManifest(snapshot, entries)) });
   const blob = new Blob([createZip(entries)], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
-  const link = Object.assign(document.createElement('a'), { href: url, download: `vk-dialog-${snapshot.peerId || 'unknown'}.zip` });
+  const link = Object.assign(document.createElement('a'), { href: url, download: archiveFileName(snapshot) });
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function archiveManifest(snapshot, entries) {
+  const sources = snapshot.messages.reduce((result, message) => {
+    result[message.source || 'unknown'] = (result[message.source || 'unknown'] || 0) + 1;
+    return result;
+  }, {});
+  const files = [];
+  for (const entry of entries) {
+    if (entry.name.endsWith('/')) continue;
+    const data = typeof entry.data === 'string' ? encoder.encode(entry.data) : entry.data;
+    files.push({ path: entry.name.replace(/^VK Dialog Export\//, ''), bytes: data.length, sha256: await sha256(data) });
+  }
+  return {
+    schemaVersion: 1,
+    generator: { name: 'VK Toolkit', version: chrome.runtime.getManifest().version },
+    exportedAt: new Date().toISOString(),
+    peerId: snapshot.peerId,
+    dialogTitle: snapshot.title || '',
+    messages: {
+      count: snapshot.stats.count,
+      cmid: { min: snapshot.stats.min, max: snapshot.stats.max, missing: snapshot.stats.missingCmids || [] },
+      sources,
+    },
+    note: 'Missing CMIDs can represent deleted or service messages and do not by themselves prove an incomplete export.',
+    files,
+  };
+}
+
+export function archiveFileName(snapshot) {
+  const title = sanitizeFilePart(snapshot.title) || 'Диалог';
+  const peer = snapshot.peerId ?? 'unknown';
+  return `VK Dialog - ${title} - ${peer}.zip`;
+}
+
+function sanitizeFilePart(value) {
+  return String(value || '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim()
+    .slice(0, 80);
+}
+
+async function sha256(data) {
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function publicMessage(item) {

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.4
+
+### Added
+
+- `archive.json` with export metadata, source counts and explicit missing CMIDs.
+- SHA-256 checksums and byte sizes for every exported document and downloaded media file.
+- Human-readable ZIP filenames containing the dialog title and `peer_id`.
+
+### Changed
+
+- Describe CMID gaps as potentially deleted or service messages instead of assuming data loss.
+
 ## 0.2.3
 
 ### Fixed

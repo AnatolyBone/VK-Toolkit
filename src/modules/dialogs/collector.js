@@ -1,5 +1,5 @@
 import { MessageStore } from './dedupe.js';
-import { findMessageContainer, getPeerId, parseDomMessages, parseNetworkPayload } from './parser.js';
+import { findMessageContainer, getDialogTitle, getPeerId, parseDomMessages, parseNetworkPayload } from './parser.js';
 
 export class DialogCollector {
   constructor({ logger, events }) {
@@ -39,7 +39,7 @@ export class DialogCollector {
   }
 
   snapshot() {
-    return { peerId: this.peerId, messages: this.store.values(), stats: this.store.stats() };
+    return { peerId: this.peerId, title: getDialogTitle(), messages: this.store.values(), stats: this.store.stats() };
   }
 
   syncPeer() {

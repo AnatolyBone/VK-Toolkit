@@ -20,6 +20,21 @@ export function getPeerId() {
   return value && /^-?\d+$/.test(value) ? Number(value) : null;
 }
 
+export function getDialogTitle() {
+  const selectors = [
+    '[data-testid="conversation-header-title"]',
+    '.ConvoHeader__title',
+    '.ConvoHeader__peerTitle',
+    '.im-page--title-main-inner',
+    '[class*="ConvoHeader"] [class*="Title"]',
+  ];
+  for (const selector of selectors) {
+    const text = document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 export function findMessageContainer() {
   const explicit = document.querySelector([
     '[data-testid="conversation-messages"]', '[data-testid="message-list"]',
