@@ -17,11 +17,12 @@ export default {
     const collector = new DialogCollector({ logger, events: ctx.events });
     const network = new DialogNetwork((payload) => collector.ingestNetwork(payload), logger);
     let exportInProgress = false;
-    const exportCurrent = async (onProgress, signal) => {
+    const exportCurrent = async (onProgress, signal, overrides = {}) => {
       if (exportInProgress) throw new Error('Экспорт уже выполняется');
       exportInProgress = true;
       try {
-      const settings = await ctx.storage.get('dialogs', { incremental: false, anonymize: false, includeAttachments: true, downloadMedia: true, encrypt: false });
+      const savedSettings = await ctx.storage.get('dialogs', { incremental: false, anonymize: false, includeAttachments: true, downloadMedia: true, encrypt: false });
+      const settings = { ...savedSettings, ...overrides };
       let password = '';
       if (settings.encrypt) {
         password = window.prompt('Придумайте пароль для этого архива .vkt.\n\nVK Toolkit не сохраняет пароль — он понадобится вам при расшифровке:') || '';
@@ -48,9 +49,13 @@ export default {
     const updateExportFormat = async () => {
       const settings = await ctx.storage.get('dialogs', { encrypt: false });
       renderer.setExportFormat(Boolean(settings.encrypt));
+      renderer.setExportOptions(settings);
     };
     const onStorageChange = (changes, area) => {
-      if (area === 'sync' && changes.dialogs) renderer.setExportFormat(Boolean(changes.dialogs.newValue?.encrypt));
+      if (area === 'sync' && changes.dialogs) {
+        renderer.setExportFormat(Boolean(changes.dialogs.newValue?.encrypt));
+        renderer.setExportOptions(changes.dialogs.newValue || {});
+      }
     };
     const refresh = () => renderer.setVisible(isMessagesPage() && Boolean(getPeerId()));
 

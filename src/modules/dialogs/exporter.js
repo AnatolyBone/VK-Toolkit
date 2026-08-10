@@ -50,6 +50,14 @@ function notifyProgress(callback, detail) {
 function prepareSnapshot(snapshot, settings, incrementalFrom) {
   let messages = snapshot.messages;
   if (incrementalFrom != null) messages = messages.filter((message) => Number.isFinite(message.conversation_message_id) && message.conversation_message_id > incrementalFrom);
+  if (settings.rangeMode === 'recent') {
+    const limit = Math.max(1, Math.min(100_000, Number(settings.recentCount) || 1000));
+    messages = messages.slice(-limit);
+  } else if (settings.rangeMode === 'dates') {
+    const from = settings.dateFrom ? new Date(`${settings.dateFrom}T00:00:00`).valueOf() : -Infinity;
+    const to = settings.dateTo ? new Date(`${settings.dateTo}T23:59:59.999`).valueOf() : Infinity;
+    messages = messages.filter((message) => { const date = new Date(message.date).valueOf(); return Number.isFinite(date) && date >= from && date <= to; });
+  }
   const aliases = new Map();
   messages = messages.map((message) => {
     const copy = { ...message };

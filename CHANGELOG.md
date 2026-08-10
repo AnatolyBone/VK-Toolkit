@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- Export wizard shown before ZIP/VKT generation.
+- Full-history, last-N-messages and date-range export modes.
+- Preflight summary with selected message count, attachment count and text size.
+- Per-export media download and encryption choices without changing global defaults.
+
+### Changed
+
+- Clicking ZIP/VKT now opens a confirmation step instead of immediately starting a potentially large export.
+
 ## 0.5.3
 
 ### Added

@@ -1,4 +1,5 @@
 const utf8Encoder = new TextEncoder();
+function formatBytes(bytes) { return bytes < 1_048_576 ? `${Math.ceil(bytes / 1024)} КБ` : `${(bytes / 1_048_576).toFixed(1)} МБ`; }
 
 export class DialogRenderer {
   constructor({ collector, onCollect, onPause, onStop, onExport }) {
@@ -9,6 +10,7 @@ export class DialogRenderer {
     this.onExport = onExport;
     this.exporting = false;
     this.exportEncrypted = false;
+    this.exportOptions = { downloadMedia: true, encrypt: false };
     this.unsubscribers = [];
   }
 
@@ -24,23 +26,29 @@ export class DialogRenderer {
         #vk-toolkit-dialogs .vkt-health{margin:-2px 0 9px;color:#9ba1aa;font-size:11px}#vk-toolkit-dialogs .vkt-health[data-state="ok"]{color:#72ca84}#vk-toolkit-dialogs .vkt-health[data-state="warn"]{color:#e5ae55}
         #vk-toolkit-dialogs .vkt-progress{height:4px;margin:-3px 0 10px;overflow:hidden;background:#34373b;border-radius:4px}#vk-toolkit-dialogs .vkt-progress i{display:block;width:0;height:100%;background:#4c8dd7;transition:width .2s}
         #vk-toolkit-dialogs .vkt-error{color:#ff7a7a;margin-top:8px;white-space:pre-wrap}
+        #vk-toolkit-dialogs .vkt-export-wizard{position:absolute;right:0;bottom:0;width:310px;padding:15px;background:#222326;border:1px solid #555;border-radius:12px;box-shadow:0 10px 35px #000a}#vk-toolkit-dialogs .vkt-export-wizard h3{margin:0 0 10px;font-size:15px}#vk-toolkit-dialogs .vkt-export-wizard label{display:grid;gap:4px;margin:8px 0;color:#c8cbd0}#vk-toolkit-dialogs .vkt-export-wizard label.vkt-check{display:flex;align-items:center}#vk-toolkit-dialogs .vkt-export-wizard input,#vk-toolkit-dialogs .vkt-export-wizard select{box-sizing:border-box;width:100%;padding:7px;color:#fff;background:#151617;border:1px solid #4b4e53;border-radius:7px}#vk-toolkit-dialogs .vkt-export-wizard input[type=checkbox]{width:auto}#vk-toolkit-dialogs .vkt-export-summary{padding:8px;margin:10px 0;color:#aeb4bd;background:#171819;border-radius:7px}#vk-toolkit-dialogs .vkt-wizard-actions{display:flex;gap:7px}
       </style>
       <header><span>VK Toolkit · Диалог</span><small data-dialog-title>Определение диалога…</small></header>
       <div class="vkt-stats"><span>Получено:</span><b data-count>0 сообщений</b><span>CMID:</span><b data-range>—</b><span>Пропусков:</span><b data-gaps>0</b><span>Текст:</span><b data-size>0 КБ</b></div>
       <div class="vkt-progress" title="Охват CMID"><i data-progress></i></div>
       <div class="vkt-health" data-health data-state="idle">Сбор ещё не запускался</div>
-      <div class="vkt-actions"><button data-collect>Собрать</button><button data-pause title="Пауза">Ⅱ</button><button data-stop title="Остановить сбор">■</button><button data-cancel-export title="Отменить экспорт">✕</button><button data-export disabled>ZIP</button></div><div class="vkt-error" hidden></div>`;
+      <div class="vkt-actions"><button data-collect>Собрать</button><button data-pause title="Пауза">Ⅱ</button><button data-stop title="Остановить сбор">■</button><button data-cancel-export title="Отменить экспорт">✕</button><button data-export disabled>ZIP</button></div><div class="vkt-error" hidden></div>
+      <div class="vkt-export-wizard" data-export-wizard hidden><h3>Настройка экспорта</h3><label>Диапазон<select data-range><option value="all">Все собранные сообщения</option><option value="recent">Последние N сообщений</option><option value="dates">Диапазон дат</option></select></label><label data-recent-row hidden>Количество<input data-recent type="number" min="1" max="100000" value="1000"></label><div data-date-row hidden><label>С даты<input data-date-from type="date"></label><label>По дату<input data-date-to type="date"></label></div><label class="vkt-check"><input data-wizard-media type="checkbox"> Скачать медиа в архив</label><label class="vkt-check"><input data-wizard-encrypt type="checkbox"> Зашифровать в VKT</label><div class="vkt-export-summary" data-wizard-summary></div><div class="vkt-wizard-actions"><button type="button" data-wizard-close>Отмена</button><button type="button" data-wizard-start>Начать</button></div></div>`;
     document.documentElement.appendChild(this.root);
     this.collectButton = this.root.querySelector('[data-collect]');
     this.exportButton = this.root.querySelector('[data-export]');
     this.pauseButton = this.root.querySelector('[data-pause]');
     this.stopButton = this.root.querySelector('[data-stop]');
     this.cancelExportButton = this.root.querySelector('[data-cancel-export]');
+    this.wizard = this.root.querySelector('[data-export-wizard]');
     this.collectButton.addEventListener('click', () => this.run(this.onCollect));
-    this.exportButton.addEventListener('click', () => this.runExport());
+    this.exportButton.addEventListener('click', () => this.openExportWizard());
     this.pauseButton.addEventListener('click', this.onPause);
     this.stopButton.addEventListener('click', this.onStop);
     this.cancelExportButton.addEventListener('click', () => this.cancelExport());
+    this.root.querySelector('[data-wizard-close]').addEventListener('click', () => { this.wizard.hidden = true; });
+    this.root.querySelector('[data-wizard-start]').addEventListener('click', () => { const options = this.readWizardOptions(); this.wizard.hidden = true; this.runExport(options); });
+    for (const node of this.wizard.querySelectorAll('input,select')) node.addEventListener('input', () => this.updateWizard());
     this.unsubscribers.push(this.collector.events.on('dialogs:progress', (stats) => this.update(stats)));
     this.unsubscribers.push(this.collector.events.on('dialogs:collecting', (state) => {
       this.root.toggleAttribute('data-collecting', state.active);
@@ -58,7 +66,7 @@ export class DialogRenderer {
     try { await action(); } catch (error) { this.showError(error.message || String(error)); }
   }
 
-  async runExport() {
+  async runExport(options = {}) {
     if (this.exporting) return;
     this.exporting = true;
     this.showError('');
@@ -67,7 +75,7 @@ export class DialogRenderer {
     this.collectButton.disabled = true;
     this.root.toggleAttribute('data-exporting', true);
     this.exportController = new AbortController();
-    try { await this.onExport((detail) => this.showExportProgress(detail), this.exportController.signal); }
+    try { await this.onExport((detail) => this.showExportProgress(detail), this.exportController.signal, options); }
     catch (error) {
       if (error?.name === 'AbortError' || this.exportController.signal.aborted) {
         const health = this.root.querySelector('[data-health]');
@@ -84,6 +92,41 @@ export class DialogRenderer {
       this.collectButton.disabled = Boolean(this.collector.collection.active);
       setTimeout(() => { if (!this.exporting) this.updateHealth(this.collector.store.stats(), this.collector.collection); }, 1800);
     }
+  }
+
+  openExportWizard() {
+    if (this.exporting || !this.collector.store.stats().count) return;
+    this.wizard.querySelector('[data-wizard-media]').checked = this.exportOptions.downloadMedia !== false;
+    this.wizard.querySelector('[data-wizard-encrypt]').checked = Boolean(this.exportOptions.encrypt);
+    this.wizard.hidden = false;
+    this.updateWizard();
+  }
+
+  readWizardOptions() {
+    return {
+      rangeMode: this.wizard.querySelector('[data-range]').value,
+      recentCount: Number(this.wizard.querySelector('[data-recent]').value) || 1000,
+      dateFrom: this.wizard.querySelector('[data-date-from]').value,
+      dateTo: this.wizard.querySelector('[data-date-to]').value,
+      downloadMedia: this.wizard.querySelector('[data-wizard-media]').checked,
+      encrypt: this.wizard.querySelector('[data-wizard-encrypt]').checked,
+    };
+  }
+
+  updateWizard() {
+    const options = this.readWizardOptions();
+    this.wizard.querySelector('[data-recent-row]').hidden = options.rangeMode !== 'recent';
+    this.wizard.querySelector('[data-date-row]').hidden = options.rangeMode !== 'dates';
+    let messages = this.collector.snapshot().messages;
+    if (options.rangeMode === 'recent') messages = messages.slice(-Math.max(1, options.recentCount));
+    if (options.rangeMode === 'dates') {
+      const from = options.dateFrom ? new Date(`${options.dateFrom}T00:00:00`).valueOf() : -Infinity;
+      const to = options.dateTo ? new Date(`${options.dateTo}T23:59:59.999`).valueOf() : Infinity;
+      messages = messages.filter((message) => { const date = new Date(message.date).valueOf(); return Number.isFinite(date) && date >= from && date <= to; });
+    }
+    const attachments = messages.reduce((sum, message) => sum + (message.attachments?.length || 0), 0);
+    const textBytes = messages.reduce((sum, message) => sum + utf8Encoder.encode(message.text || '').length, 0);
+    this.wizard.querySelector('[data-wizard-summary]').textContent = `${messages.length} сообщений · ${attachments} вложений · текст ${formatBytes(textBytes)}${options.downloadMedia ? ' · размер медиа определяется при загрузке' : ' · быстрый режим'}`;
   }
 
   cancelExport() {
@@ -135,6 +178,8 @@ export class DialogRenderer {
     this.exportButton.textContent = encrypted ? 'VKT' : 'ZIP';
     this.exportButton.title = encrypted ? 'Зашифрованный архив .vkt' : 'Обычный ZIP-архив';
   }
+
+  setExportOptions(settings = {}) { this.exportOptions = { ...this.exportOptions, ...settings }; }
 
   updateHealth(stats, collection) {
     if (this.exporting) return;
