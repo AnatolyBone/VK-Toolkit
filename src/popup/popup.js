@@ -23,8 +23,10 @@ form.addEventListener('submit', async (event) => {
   catch (error) { showError(error); }
 });
 document.querySelector('#resetArchives').addEventListener('click', async () => {
-  await chrome.storage.local.remove('dialogArchiveState');
-  status.style.color = '#72ca84'; status.textContent = 'История экспортов сброшена';
+  const saved = await chrome.storage.local.get(null);
+  const sessionKeys = Object.keys(saved).filter((key) => key.startsWith('dialogCollectorSession:'));
+  await chrome.storage.local.remove(['dialogArchiveState', ...sessionKeys]);
+  status.style.color = '#72ca84'; status.textContent = 'История экспортов и сборов сброшена';
   setTimeout(() => { status.textContent = ''; }, 1600);
 });
 

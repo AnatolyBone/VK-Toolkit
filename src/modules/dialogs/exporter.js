@@ -93,7 +93,8 @@ export function asVerifier(manifest) {
 export function archiveFileName(snapshot) {
   const title = sanitizeFilePart(snapshot.title) || 'Диалог';
   const peer = snapshot.peerId ?? 'unknown';
-  return `VK Dialog - ${title} - ${peer}.zip`;
+  const date = new Date().toISOString().slice(0, 10);
+  return `VK Dialog - ${title} - ${peer} - ${date}.zip`;
 }
 
 function sanitizeFilePart(value) {

@@ -9,6 +9,9 @@ export class DialogCollector {
     this.observer = null;
     this.running = false;
     this.peerId = null;
+    this.restoreToken = 0;
+    this.saveTimer = null;
+    this.restored = false;
     this.collection = { active: false, paused: false, cancelled: false, iteration: 0, unchanged: 0, status: 'idle' };
   }
 
@@ -24,7 +27,7 @@ export class DialogCollector {
     this.observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  stop() { this.running = false; this.cancel(); this.observer?.disconnect(); }
+  stop() { this.running = false; this.cancel(); this.observer?.disconnect(); clearTimeout(this.saveTimer); this.persistSession(); }
 
   ingestNetwork(payload) { this.syncPeer(); this.add(parseNetworkPayload(payload)); }
   ingestDom(root = document) { this.syncPeer(); this.add(parseDomMessages(root)); }
@@ -35,22 +38,60 @@ export class DialogCollector {
       return message.peer_id == null || Number(message.peer_id) === currentPeer;
     });
     const added = this.store.addMany(relevant);
-    if (added) this.events.emit('dialogs:progress', this.store.stats());
+    if (added) {
+      this.restored = false;
+      this.events.emit('dialogs:progress', this.store.stats());
+      this.schedulePersist();
+    }
     return added;
   }
 
   snapshot() {
-    return { peerId: this.peerId, title: getDialogTitle(), messages: this.store.values(), stats: this.store.stats(), collection: { ...this.collection } };
+    return { peerId: this.peerId, title: getDialogTitle(), messages: this.store.values(), stats: this.store.stats(), collection: { ...this.collection }, restored: this.restored };
   }
 
   syncPeer() {
     const peerId = getPeerId();
     if (peerId === this.peerId) return;
     if (this.collection.active) this.cancel();
+    if (this.peerId != null && this.store.messages.size) this.persistSession();
     this.peerId = peerId;
     this.store.clear();
+    this.restored = false;
     this.events.emit('dialogs:progress', this.store.stats());
     this.logger.info('Active peer changed', peerId);
+    this.restoreSession(peerId, ++this.restoreToken);
+  }
+
+  async restoreSession(peerId, token) {
+    if (peerId == null) return;
+    try {
+      const key = sessionKey(peerId);
+      const saved = (await chrome.storage.local.get(key))[key];
+      if (!this.running || token !== this.restoreToken || peerId !== this.peerId || !Array.isArray(saved?.messages)) return;
+      const added = this.store.addMany(saved.messages);
+      this.restored = added > 0;
+      if (added) {
+        this.collection = { ...this.collection, status: 'restored' };
+        this.events.emit('dialogs:progress', this.store.stats());
+        this.events.emit('dialogs:collecting', { ...this.collection });
+        this.logger.info('Restored collection session', peerId, added);
+      }
+    } catch (error) { this.logger.warn('Could not restore collection session', error); }
+  }
+
+  schedulePersist() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this.persistSession(), 750);
+  }
+
+  async persistSession() {
+    clearTimeout(this.saveTimer);
+    if (this.peerId == null || !this.store.messages.size) return;
+    const key = sessionKey(this.peerId);
+    try {
+      await chrome.storage.local.set({ [key]: { peerId: this.peerId, title: getDialogTitle(), savedAt: new Date().toISOString(), messages: this.store.values() } });
+    } catch (error) { this.logger.warn('Could not persist collection session', error); }
   }
 
   async collectFullHistory() {
@@ -100,6 +141,8 @@ export class DialogCollector {
     this.events.emit('dialogs:collecting', { ...this.collection });
   }
 }
+
+function sessionKey(peerId) { return `dialogCollectorSession:${peerId}`; }
 
 function delay(timeout) { return new Promise((resolve) => setTimeout(resolve, timeout)); }
 

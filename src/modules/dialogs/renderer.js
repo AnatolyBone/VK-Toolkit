@@ -20,10 +20,12 @@ export class DialogRenderer {
         #vk-toolkit-dialogs .vkt-stats{display:grid;grid-template-columns:1fr auto;gap:3px 10px;color:#adb3bc;margin-bottom:10px}#vk-toolkit-dialogs .vkt-stats b{color:#fff;font-weight:600}
         #vk-toolkit-dialogs .vkt-actions{display:flex;gap:7px}#vk-toolkit-dialogs button{flex:1;border:0;border-radius:8px;padding:8px;background:#447bba;color:#fff;cursor:pointer}#vk-toolkit-dialogs button[data-pause],#vk-toolkit-dialogs button[data-stop]{display:none;flex:0 0 34px;padding:8px 4px;background:#34373b}#vk-toolkit-dialogs[data-collecting] button[data-pause],#vk-toolkit-dialogs[data-collecting] button[data-stop]{display:block}#vk-toolkit-dialogs button:disabled{opacity:.55;cursor:not-allowed}
         #vk-toolkit-dialogs .vkt-health{margin:-2px 0 9px;color:#9ba1aa;font-size:11px}#vk-toolkit-dialogs .vkt-health[data-state="ok"]{color:#72ca84}#vk-toolkit-dialogs .vkt-health[data-state="warn"]{color:#e5ae55}
+        #vk-toolkit-dialogs .vkt-progress{height:4px;margin:-3px 0 10px;overflow:hidden;background:#34373b;border-radius:4px}#vk-toolkit-dialogs .vkt-progress i{display:block;width:0;height:100%;background:#4c8dd7;transition:width .2s}
         #vk-toolkit-dialogs .vkt-error{color:#ff7a7a;margin-top:8px;white-space:pre-wrap}
       </style>
       <header><span>VK Toolkit · Диалог</span><small data-dialog-title>Определение диалога…</small></header>
       <div class="vkt-stats"><span>Получено:</span><b data-count>0 сообщений</b><span>CMID:</span><b data-range>—</b><span>Пропусков:</span><b data-gaps>0</b><span>Текст:</span><b data-size>0 КБ</b></div>
+      <div class="vkt-progress" title="Охват CMID"><i data-progress></i></div>
       <div class="vkt-health" data-health data-state="idle">Сбор ещё не запускался</div>
       <div class="vkt-actions"><button data-collect>Собрать</button><button data-pause title="Пауза">Ⅱ</button><button data-stop title="Остановить">■</button><button data-export disabled>ZIP</button></div><div class="vkt-error" hidden></div>`;
     document.documentElement.appendChild(this.root);
@@ -59,6 +61,8 @@ export class DialogRenderer {
     this.root.querySelector('[data-count]').textContent = `${stats.count} сообщений`;
     this.root.querySelector('[data-range]').textContent = stats.min == null ? '—' : `${stats.min} – ${stats.max}`;
     this.root.querySelector('[data-gaps]').textContent = String(stats.gaps);
+    const coverage = stats.max > 0 && stats.min != null ? Math.max(0, Math.min(100, ((stats.max - stats.min + 1 - stats.gaps) / stats.max) * 100)) : 0;
+    this.root.querySelector('[data-progress]').style.width = `${coverage}%`;
     const textBytes = snapshot.messages.reduce((sum, message) => sum + utf8Encoder.encode(message.text || '').length, 0);
     this.root.querySelector('[data-size]').textContent = textBytes < 1_000_000 ? `${Math.ceil(textBytes / 1024)} КБ` : `${(textBytes / 1_048_576).toFixed(1)} МБ`;
     this.updateHealth(stats, snapshot.collection);
@@ -73,6 +77,7 @@ export class DialogRenderer {
       return;
     }
     if (collection?.status === 'cancelled') { health.dataset.state = 'warn'; health.textContent = 'Сбор остановлен пользователем'; return; }
+    if (collection?.status === 'restored') { health.dataset.state = 'ok'; health.textContent = 'Восстановлена сохранённая сессия · можно продолжить'; return; }
     if (collection?.status === 'complete') { health.dataset.state = 'ok'; health.textContent = 'Достигнуто начало переписки'; return; }
     if (collection?.status === 'stable' && stats.count) { health.dataset.state = stats.gaps ? 'warn' : 'ok'; health.textContent = stats.gaps ? `Сбор завершён · отсутствуют CMID: ${stats.gaps}` : 'Сбор завершён · диапазон непрерывный'; return; }
     if (!stats.count) { health.dataset.state = 'idle'; health.textContent = 'Сбор ещё не запускался'; }

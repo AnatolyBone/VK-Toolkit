@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.1
+
+### Added
+
+- Persistent dialog collection sessions per peer.
+- Automatic collection recovery after a VK page reload.
+- CMID coverage progress indicator.
+- Export date in archive filenames.
+
+### Changed
+
+- Resetting dialog history now also removes saved collection sessions.
+
 ## 0.4.0
 
 ### Added
