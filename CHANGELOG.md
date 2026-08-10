@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- Offline `verify.html` for checking extracted files against SHA-256 and byte sizes.
+- Explicit media byte totals and a 200 MB aggregate safety limit.
+
+### Changed
+
+- Large media archives now skip files beyond the safety limit and document every omission in `archive.json`.
+
 ## 0.3.0
 
 ### Added

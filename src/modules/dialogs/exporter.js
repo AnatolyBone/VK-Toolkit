@@ -17,6 +17,8 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
   ];
   const media = await appendMedia(entries, dialog, folder, logger);
   entries.push({ name: `${folder}viewer.html`, data: asViewer(snapshot.messages, snapshot, media.files) });
+  const verificationTarget = await archiveManifest(snapshot, entries, media);
+  entries.push({ name: `${folder}verify.html`, data: asVerifier(verificationTarget) });
   entries.push({ name: `${folder}archive.json`, data: pretty(await archiveManifest(snapshot, entries, media)) });
   const blob = new Blob([createZip(entries)], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
@@ -78,6 +80,11 @@ async function archiveManifest(snapshot, entries, media) {
   };
 }
 
+export function asVerifier(manifest) {
+  const payload = JSON.stringify({ files: manifest.files }).replace(/</g, '\\u003c');
+  return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Проверка архива · VK Toolkit</title><style>body{max-width:900px;margin:40px auto;padding:0 20px;font:14px/1.45 system-ui;background:#f1f3f6;color:#20242a}main{padding:22px;background:#fff;border-radius:14px}input{display:block;margin:16px 0}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #ddd;text-align:left}.ok{color:#178a3d}.bad{color:#c33434}.muted{color:#6c7480}</style><main><h1>Проверка целостности</h1><p>Выберите распакованную папку <b>VK Dialog Export</b>. Проверка выполняется локально.</p><input id="folder" type="file" webkitdirectory multiple><p id="summary" class="muted">Ожидание папки</p><table><thead><tr><th>Файл</th><th>Статус</th></tr></thead><tbody id="results"></tbody></table></main><script type="application/json" id="manifest">${payload}</script><script>(()=>{const expected=JSON.parse(document.querySelector('#manifest').textContent).files,input=document.querySelector('#folder'),body=document.querySelector('#results'),summary=document.querySelector('#summary'),hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');input.onchange=async()=>{const selected=[...input.files],rows=[];let ok=0;for(const item of expected){const file=selected.find(f=>f.webkitRelativePath.endsWith('/'+item.path)||f.name===item.path);if(!file){rows.push([item.path,'Не найден','bad']);continue}const hash=hex(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),valid=hash===item.sha256&&file.size===item.bytes;if(valid)ok++;rows.push([item.path,valid?'OK':'Повреждён',''+(valid?'ok':'bad')])}body.innerHTML=rows.map(r=>'<tr><td>'+r[0].replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</td><td class="'+r[2]+'">'+r[1]+'</td></tr>').join('');summary.textContent='Проверено '+ok+' из '+expected.length;summary.className=ok===expected.length?'ok':'bad'}})()</script></html>`;
+}
+
 export function archiveFileName(snapshot) {
   const title = sanitizeFilePart(snapshot.title) || 'Диалог';
   const peer = snapshot.peerId ?? 'unknown';
@@ -136,15 +143,21 @@ function attachmentUrl(item) {
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 
 async function appendMedia(entries, messages, folder, logger) {
+  const maxTotalBytes = 200_000_000;
   const urls = [...new Set(messages.flatMap((m) => m.attachments || []).map(attachmentUrl).filter(isDirectMediaUrl))];
-  const report = { discovered: urls.length, downloaded: 0, files: [], unavailable: [] };
+  const report = { discovered: urls.length, downloaded: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
   for (let index = 0; index < urls.length; index++) {
     try {
       const { data, contentType } = await fetchMedia(urls[index]);
+      if (report.totalBytes + data.length > maxTotalBytes) {
+        report.unavailable.push({ url: urls[index], reason: 'Превышен общий лимит медиа 200 МБ' });
+        continue;
+      }
       const extension = mimeExtension(contentType) || urlExtension(urls[index]);
       const path = `media/${String(index + 1).padStart(4, '0')}.${extension}`;
       entries.push({ name: `${folder}${path}`, data });
       report.downloaded++;
+      report.totalBytes += data.length;
       report.files.push({ url: urls[index], path, bytes: data.length });
     } catch (error) { report.unavailable.push({ url: urls[index], reason: error.message || String(error) }); logger?.warn('Media was left as a link', urls[index], error); }
   }
