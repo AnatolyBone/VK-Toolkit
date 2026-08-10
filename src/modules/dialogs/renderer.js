@@ -1,5 +1,11 @@
+import { collectMediaReferences } from './exporter.js';
+
 const utf8Encoder = new TextEncoder();
 function formatBytes(bytes) { return bytes < 1_048_576 ? `${Math.ceil(bytes / 1024)} КБ` : `${(bytes / 1_048_576).toFixed(1)} МБ`; }
+function formatDuration(milliseconds = 0) {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  return seconds < 60 ? `${seconds} сек` : `${Math.floor(seconds / 60)} мин ${seconds % 60} сек`;
+}
 
 export class DialogRenderer {
   constructor({ collector, onCollect, onPause, onStop, onExport }) {
@@ -69,6 +75,7 @@ export class DialogRenderer {
   async runExport(options = {}) {
     if (this.exporting) return;
     this.exporting = true;
+    this.lastExportCompleted = false;
     this.showError('');
     this.cancelExportButton.disabled = false;
     this.exportButton.disabled = true;
@@ -90,7 +97,7 @@ export class DialogRenderer {
       this.setExportFormat(this.exportEncrypted);
       this.exportButton.disabled = this.collector.store.stats().count === 0;
       this.collectButton.disabled = Boolean(this.collector.collection.active);
-      setTimeout(() => { if (!this.exporting) this.updateHealth(this.collector.store.stats(), this.collector.collection); }, 1800);
+      if (!this.lastExportCompleted) setTimeout(() => { if (!this.exporting) this.updateHealth(this.collector.store.stats(), this.collector.collection); }, 1800);
     }
   }
 
@@ -125,6 +132,7 @@ export class DialogRenderer {
       messages = messages.filter((message) => { const date = new Date(message.date).valueOf(); return Number.isFinite(date) && date >= from && date <= to; });
     }
     const attachments = messages.reduce((sum, message) => sum + (message.attachments?.length || 0), 0);
+    const uniqueMedia = collectMediaReferences(messages).length;
     const textBytes = messages.reduce((sum, message) => sum + utf8Encoder.encode(message.text || '').length, 0);
     const coverage = this.collector.store.stats();
     const complete = this.collector.collection.reachedStart || this.collector.collection.status === 'complete';
@@ -133,7 +141,8 @@ export class DialogRenderer {
         ? ` · начало переписки достигнуто · отсутствуют/недоступны ${coverage.uncollected} CMID`
         : ` · ⚠ вероятно не собрано ${coverage.uncollected} CMID — можно отменить и продолжить сбор`
       : '';
-    this.wizard.querySelector('[data-wizard-summary]').textContent = `${messages.length} сообщений · ${attachments} вложений · текст ${formatBytes(textBytes)}${options.downloadMedia ? ' · размер медиа определяется при загрузке' : ' · быстрый режим'}${warning}`;
+    const mediaCount = uniqueMedia === attachments ? `${attachments} вложений` : `${attachments} вложений · ${uniqueMedia} уникальных файлов`;
+    this.wizard.querySelector('[data-wizard-summary]').textContent = `${messages.length} сообщений · ${mediaCount} · текст ${formatBytes(textBytes)}${options.downloadMedia ? ' · размер медиа определяется при загрузке' : ' · быстрый режим'}${warning}`;
   }
 
   cancelExport() {
@@ -147,6 +156,7 @@ export class DialogRenderer {
   showExportProgress(detail) {
     const health = this.root.querySelector('[data-health]');
     health.dataset.state = detail.stage === 'complete' ? 'ok' : 'idle';
+    if (detail.stage === 'complete') this.lastExportCompleted = true;
     const mb = detail.bytes ? ` · ${(detail.bytes / 1_048_576).toFixed(1)} МБ` : '';
     const labels = {
       preparing: 'Подготовка данных…',
@@ -154,10 +164,10 @@ export class DialogRenderer {
       building: `Упаковка архива${mb}…`,
       encrypting: `Шифрование архива${mb}…`,
       downloading: `Подготовка скачивания${mb}…`,
-      complete: `Готово · скачан один архив${mb}`,
+      complete: `Готово · ${detail.messages || 0} сообщений · медиа ${detail.downloaded || 0}/${detail.total || 0} · ошибок ${detail.failed || 0} · ${formatDuration(detail.durationMs)}${mb}`,
     };
     health.textContent = detail.stage === 'media'
-      ? `Вложения ${detail.current}/${detail.total} · готово ${detail.downloaded} · из кэша ${detail.cacheHits || 0}${mb}`
+      ? `Вложения ${detail.current}/${detail.total} · готово ${detail.downloaded} · ошибок ${detail.failed || 0} · повторов ${detail.retries || 0}${mb}`
       : labels[detail.stage] || 'Экспорт…';
     if (detail.stage === 'media') this.exportButton.textContent = detail.total ? `${Math.round((detail.current / detail.total) * 100)}%` : '…';
     else this.exportButton.textContent = detail.stage === 'complete' ? '✓' : '…';

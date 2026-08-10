@@ -1,10 +1,11 @@
-const mediaCache = new Map();
+const mediaBuffers = new Map();
 const mediaRequests = new Map();
 const MAX_MEDIA_BYTES = 30_000_000;
 const CHUNK_BYTES = 384_000;
-const CACHE_NAME = 'vk-toolkit-media-v1';
-const CACHE_META_KEY = 'mediaCacheMeta';
-const MAX_CACHE_BYTES = 500_000_000;
+
+// Remove disk cache created by VK Toolkit 0.9.0 once users upgrade.
+caches.delete('vk-toolkit-media-v1').catch(() => {});
+chrome.storage.local.remove('mediaCacheMeta').catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message?.type?.startsWith('media:')) return false;
@@ -18,13 +19,6 @@ async function handleMediaMessage(message) {
     const controller = new AbortController();
     if (message.requestId) mediaRequests.set(message.requestId, controller);
     try {
-      const cachedResponse = await (await caches.open(CACHE_NAME)).match(message.url);
-      if (cachedResponse) {
-        const bytes = new Uint8Array(await cachedResponse.arrayBuffer());
-        if (controller.signal.aborted) throw new Error('Загрузка отменена');
-        await touchCacheEntry(message.url, bytes.length);
-        return cacheMediaBytes(bytes, cachedResponse.headers.get('content-type') || '', true);
-      }
       const response = await fetch(message.url, { credentials: 'omit', redirect: 'follow', signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const declared = Number(response.headers.get('content-length') || 0);
@@ -32,8 +26,7 @@ async function handleMediaMessage(message) {
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (bytes.length > MAX_MEDIA_BYTES) throw new Error('Файл больше 30 МБ');
       const contentType = response.headers.get('content-type') || '';
-      await storeCacheEntry(message.url, bytes, contentType);
-      return cacheMediaBytes(bytes, contentType, false);
+      return exposeMediaBytes(bytes, contentType);
     } catch (error) {
       if (controller.signal.aborted) throw new Error('Загрузка отменена');
       throw error;
@@ -44,55 +37,24 @@ async function handleMediaMessage(message) {
     mediaRequests.delete(message.requestId);
     return { ok: true };
   }
-  if (message.type === 'media:cache-status') return cacheStatus();
-  if (message.type === 'media:cache-clear') {
-    await caches.delete(CACHE_NAME);
-    await chrome.storage.local.remove(CACHE_META_KEY);
-    return { ok: true, entries: 0, bytes: 0, limitBytes: MAX_CACHE_BYTES };
-  }
   if (message.type === 'media:chunk') {
-    const bytes = mediaCache.get(message.token);
-    if (!bytes) throw new Error('Media cache expired');
+    const bytes = mediaBuffers.get(message.token);
+    if (!bytes) throw new Error('Media buffer expired');
     const start = Number(message.index) * CHUNK_BYTES;
     return { ok: true, base64: toBase64(bytes.subarray(start, start + CHUNK_BYTES)) };
   }
   if (message.type === 'media:release') {
-    mediaCache.delete(message.token);
+    mediaBuffers.delete(message.token);
     return { ok: true };
   }
   throw new Error('Unknown media operation');
 }
 
-function cacheMediaBytes(bytes, contentType, cached) {
+function exposeMediaBytes(bytes, contentType) {
   const token = crypto.randomUUID();
-  mediaCache.set(token, bytes);
-  setTimeout(() => mediaCache.delete(token), 120_000);
-  return { ok: true, token, size: bytes.length, chunks: Math.ceil(bytes.length / CHUNK_BYTES), contentType, cached };
-}
-
-async function cacheStatus() {
-  const meta = (await chrome.storage.local.get(CACHE_META_KEY))[CACHE_META_KEY] || { entries: {} };
-  const entries = Object.values(meta.entries || {});
-  return { ok: true, entries: entries.length, bytes: entries.reduce((sum, item) => sum + Number(item.bytes || 0), 0), limitBytes: MAX_CACHE_BYTES };
-}
-
-async function touchCacheEntry(url, bytes) {
-  const meta = (await chrome.storage.local.get(CACHE_META_KEY))[CACHE_META_KEY] || { entries: {} };
-  meta.entries[url] = { bytes, lastAccess: Date.now() };
-  await chrome.storage.local.set({ [CACHE_META_KEY]: meta });
-}
-
-async function storeCacheEntry(url, bytes, contentType) {
-  const cache = await caches.open(CACHE_NAME);
-  await cache.put(url, new Response(bytes, { headers: { 'content-type': contentType } }));
-  const meta = (await chrome.storage.local.get(CACHE_META_KEY))[CACHE_META_KEY] || { entries: {} };
-  meta.entries[url] = { bytes: bytes.length, lastAccess: Date.now() };
-  let total = Object.values(meta.entries).reduce((sum, item) => sum + Number(item.bytes || 0), 0);
-  for (const [oldUrl, item] of Object.entries(meta.entries).sort((left, right) => left[1].lastAccess - right[1].lastAccess)) {
-    if (total <= MAX_CACHE_BYTES) break;
-    await cache.delete(oldUrl); total -= Number(item.bytes || 0); delete meta.entries[oldUrl];
-  }
-  await chrome.storage.local.set({ [CACHE_META_KEY]: meta });
+  mediaBuffers.set(token, bytes);
+  setTimeout(() => mediaBuffers.delete(token), 120_000);
+  return { ok: true, token, size: bytes.length, chunks: Math.ceil(bytes.length / CHUNK_BYTES), contentType };
 }
 
 function isAllowedMediaUrl(value) {

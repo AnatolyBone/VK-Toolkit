@@ -4,6 +4,7 @@ import { analyzeCmids } from './dedupe.js';
 const encoder = new TextEncoder();
 
 export async function exportDialog(snapshot, { logger, settings = {}, incrementalFrom = null, password = '', onProgress, signal } = {}) {
+  const startedAt = performance.now();
   throwIfAborted(signal);
   notifyProgress(onProgress, { stage: 'preparing' });
   snapshot = prepareSnapshot(snapshot, settings, incrementalFrom);
@@ -40,8 +41,9 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
   const link = Object.assign(document.createElement('a'), { href: url, download: archiveFileName(snapshot).replace(/\.zip$/, encrypted ? '.vkt' : '.zip') });
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  notifyProgress(onProgress, { stage: 'complete', bytes: output.length, downloaded: media.downloaded, total: media.discovered });
-  return { count: snapshot.messages.length, maxCmid: snapshot.stats.max };
+  const durationMs = Math.round(performance.now() - startedAt);
+  notifyProgress(onProgress, { stage: 'complete', bytes: output.length, messages: snapshot.messages.length, downloaded: media.downloaded, failed: media.unavailable.length, retries: media.retries || 0, total: media.discovered, durationMs });
+  return { count: snapshot.messages.length, maxCmid: snapshot.stats.max, bytes: output.length, media, durationMs };
 }
 
 function notifyProgress(callback, detail) {
@@ -89,7 +91,7 @@ async function archiveManifest(snapshot, entries, media) {
     files.push({ path: entry.name.replace(/^VK Dialog Export\//, ''), bytes: data.length, sha256: await sha256(data) });
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     generator: { name: 'VK Toolkit', version: chrome.runtime.getManifest().version },
     exportedAt: new Date().toISOString(),
     peerId: snapshot.peerId,
@@ -234,18 +236,19 @@ function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (cha
 async function appendMedia(entries, messages, folder, logger, onProgress, signal) {
   const maxTotalBytes = 200_000_000;
   const references = collectMediaReferences(messages);
-  const report = { discovered: references.length, downloaded: 0, cacheHits: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
-  notifyProgress(onProgress, { stage: 'media', current: 0, total: references.length, downloaded: 0, cacheHits: 0, bytes: 0 });
+  const report = { discovered: references.length, downloaded: 0, retries: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
+  const progress = (current) => notifyProgress(onProgress, { stage: 'media', current, total: references.length, downloaded: report.downloaded, failed: report.unavailable.length, retries: report.retries, bytes: report.totalBytes });
+  progress(0);
   for (let index = 0; index < references.length; index++) {
     throwIfAborted(signal);
     const reference = references[index];
     if (!isDirectMediaUrl(reference.url)) {
       report.unavailable.push({ ...reference, reason: reference.url ? 'Вложение доступно только как ссылка' : 'URL вложения не найден' });
-      notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, cacheHits: report.cacheHits, bytes: report.totalBytes });
+      progress(index + 1);
       continue;
     }
     try {
-      const { data, contentType, cached } = await fetchMediaWithRetry(reference.url, 3, signal);
+      const { data, contentType } = await fetchMediaWithRetry(reference.url, 3, signal, () => { report.retries++; progress(index); });
       if (report.totalBytes + data.length > maxTotalBytes) {
         report.unavailable.push({ ...reference, reason: 'Превышен общий лимит медиа 200 МБ' });
         continue;
@@ -254,16 +257,15 @@ async function appendMedia(entries, messages, folder, logger, onProgress, signal
       const path = mediaPath(reference, index, extension);
       entries.push({ name: `${folder}${path}`, data });
       report.downloaded++;
-      if (cached) report.cacheHits++;
       report.totalBytes += data.length;
-      report.files.push({ ...reference, path, bytes: data.length, contentType, cached });
+      report.files.push({ ...reference, path, bytes: data.length, contentType });
     } catch (error) { report.unavailable.push({ ...reference, reason: error.message || String(error) }); logger?.warn('Media was left as a link', reference.url, error); }
-    notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, cacheHits: report.cacheHits, bytes: report.totalBytes });
+    progress(index + 1);
   }
   return report;
 }
 
-function collectMediaReferences(messages) {
+export function collectMediaReferences(messages) {
   const unique = new Map();
   for (const message of messages) for (const item of message.attachments || []) {
     const info = attachmentInfo(item);
@@ -283,7 +285,7 @@ function skipMediaDownloads(messages, onProgress) {
   return {
     discovered: references.length,
     downloaded: 0,
-    cacheHits: 0,
+    retries: 0,
     totalBytes: 0,
     limitBytes: 200_000_000,
     downloadSkipped: true,
@@ -299,12 +301,12 @@ function mediaPath(reference, index, extension) {
   return `media/cmid-${cmid}-${type}-${String(index + 1).padStart(4, '0')}${name ? `-${name}` : ''}.${extension}`;
 }
 
-async function fetchMediaWithRetry(url, attempts, signal) {
+async function fetchMediaWithRetry(url, attempts, signal, onRetry) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     throwIfAborted(signal);
     try { return await fetchMedia(url, signal); }
-    catch (error) { if (signal?.aborted) throw abortError(); lastError = error; if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 500)); }
+    catch (error) { if (signal?.aborted) throw abortError(); lastError = error; if (attempt < attempts) { onRetry?.(attempt, error); await new Promise((resolve) => setTimeout(resolve, attempt * 500)); } }
   }
   throw new Error(`Не удалось скачать после ${attempts} попыток: ${lastError?.message || lastError}`);
 }
@@ -332,7 +334,7 @@ async function fetchMedia(url, signal) {
       const bytes = fromBase64(response.base64);
       output.set(bytes, offset); offset += bytes.length;
     }
-    return { data: output, contentType: meta.contentType, cached: Boolean(meta.cached) };
+    return { data: output, contentType: meta.contentType };
   } finally {
     chrome.runtime.sendMessage({ type: 'media:release', token: meta.token }).catch(() => {});
   }

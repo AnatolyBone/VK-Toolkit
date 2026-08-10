@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.0
+
+### Added
+
+- Visible retry and failed-media counters during export.
+- Final export report with message count, downloaded and failed media, archive size and elapsed time.
+- Separate raw attachment and unique downloadable-file counts in the export wizard.
+
+### Changed
+
+- Removed the persistent 500 MB media cache and its popup controls.
+- Media bytes now exist only in short-lived memory while the current file is transferred to the archive.
+- Removed the no-longer-required `unlimitedStorage` permission.
+
 ## 0.9.1
 
 ### Fixed

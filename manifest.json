@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "VK Toolkit",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Модульный набор инструментов для VK.",
-  "permissions": ["storage", "unlimitedStorage"],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://vk.ru/*",
     "https://m.vk.ru/*",
