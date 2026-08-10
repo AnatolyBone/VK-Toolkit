@@ -1,72 +1,40 @@
 # VK Toolkit
 
-Набор локальных инструментов для актуального VK (`vk.ru`, с поддержкой `vk.com`), собранный как модульное браузерное расширение.
+Расширение для `vk.ru` и `vk.com` с независимыми модулями и настройками в `chrome.storage.sync`. Версия: **0.2.1**.
 
-## Архитектура
+## Установка
 
-Начиная с `0.2.0-dev` проект переходит на модульную структуру.
+1. Скачайте репозиторий.
+2. Откройте `chrome://extensions` и включите «Режим разработчика».
+3. Нажмите «Загрузить распакованное расширение» и выберите корень проекта.
+4. Откройте или перезагрузите страницу VK. Настройки доступны по иконке расширения.
+
+## Реализованные модули
+
+- **Диалоги** — network-first сбор сообщений с DOM fallback, дедупликация по CMID, загрузка истории прокруткой и ZIP-экспорт JSON/HTML/TXT/analysis/media.
+- **Debug** — CMID, MSG ID, peer и дата сообщения при наведении.
+- **Фото** — поиск URL максимального размера и кнопка «Открыть оригинал».
+- **Интерфейс** — скрытие клипов и историй, компактное меню и пользовательский CSS.
+
+## Структура
 
 ```text
-VK-Toolkit/
-├── manifest.json
-├── src/
-│   ├── bootstrap.js
-│   ├── core/
-│   │   ├── moduleManager.js
-│   │   ├── storage.js
-│   │   └── eventBus.js
-│   │
-│   ├── modules/
-│   │   ├── dialogs/
-│   │   ├── debug/
-│   │   ├── photos/
-│   │   └── ui/
-│   │
-│   └── popup/
-│       ├── popup.html
-│       ├── popup.js
-│       └── popup.css
-│
-├── docs/
-├── CHANGELOG.md
-├── LICENSE
-└── README.md
+src/
+├── bootstrap.js
+├── runtime.js
+├── core/
+│   ├── moduleManager.js
+│   ├── storage.js
+│   ├── eventBus.js
+│   └── logger.js
+├── modules/
+│   ├── dialogs/  (module, collector, network, parser, dedupe, exporter, renderer)
+│   ├── debug/    (module, overlay)
+│   ├── photos/   (module, original)
+│   └── ui/       (module, hideClips, hideStories, customCss)
+└── popup/
 ```
 
-## Принцип модулей
+Подробности: [архитектура](docs/ARCHITECTURE.md), [модули](docs/MODULES.md), [разработка](docs/DEVELOPMENT.md).
 
-Каждый модуль содержит:
-
-- `id`
-- `name`
-- `init(context)`
-- `destroy()`
-
-Модули независимы и могут включаться/отключаться через систему настроек.
-
-## Модули
-
-### Dialogs
-Экспорт и анализ истории переписок.
-
-### Debug
-Технические инструменты: ID, CMID, peer_id.
-
-### Photos
-Инструменты работы с фотографиями VK.
-
-### UI
-Настройки интерфейса VK.
-
-## Разработка
-
-Проект работает локально в браузере пользователя и не отправляет данные на внешние серверы.
-
-Подробности:
-- `docs/ARCHITECTURE.md`
-- `docs/MODULES.md`
-- `docs/DEVELOPMENT.md`
-
-## Лицензия
-
-MIT.
+Данные диалогов обрабатываются локально. Внешний сервер VK Toolkit не используется. Лицензия MIT.

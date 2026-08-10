@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "VK Toolkit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Модульный набор инструментов для VK.",
-  "permissions": ["storage", "unlimitedStorage", "activeTab", "tabs"],
-  "host_permissions": ["https://vk.ru/*", "https://m.vk.ru/*", "https://vk.com/*", "https://m.vk.com/*"],
+  "permissions": ["storage", "unlimitedStorage"],
+  "host_permissions": [
+    "https://vk.ru/*",
+    "https://m.vk.ru/*",
+    "https://vk.com/*",
+    "https://m.vk.com/*",
+    "https://*.userapi.com/*",
+    "https://*.vkuseraudio.net/*"
+  ],
   "action": {
     "default_title": "VK Toolkit",
     "default_popup": "src/popup/popup.html"
@@ -13,12 +20,12 @@
     {
       "matches": ["https://vk.ru/*", "https://m.vk.ru/*", "https://vk.com/*", "https://m.vk.com/*"],
       "js": ["src/bootstrap.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/*"],
+      "resources": ["src/runtime.js", "src/core/*.js", "src/modules/*/*.js"],
       "matches": ["https://vk.ru/*", "https://m.vk.ru/*", "https://vk.com/*", "https://m.vk.com/*"]
     }
   ]
