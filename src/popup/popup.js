@@ -1,6 +1,6 @@
 const defaults = {
   modules: { dialogs: true, debug: true, photos: true, ui: true },
-  dialogs: { incremental: false, anonymize: false, includeAttachments: true },
+  dialogs: { incremental: false, anonymize: false, includeAttachments: true, encrypt: false },
   debug: { showMessageIds: true },
   ui: { hideClips: false, hideStories: false, compactMenu: false, customCss: '' },
 };
@@ -13,7 +13,7 @@ form.addEventListener('submit', async (event) => {
   const data = new FormData(form);
   const settings = {
     modules: Object.fromEntries(Object.keys(defaults.modules).map((id) => [id, data.has(`module.${id}`)])),
-    dialogs: { incremental: data.has('dialogs.incremental'), anonymize: data.has('dialogs.anonymize'), includeAttachments: data.has('dialogs.includeAttachments') },
+    dialogs: { incremental: data.has('dialogs.incremental'), anonymize: data.has('dialogs.anonymize'), includeAttachments: data.has('dialogs.includeAttachments'), encrypt: data.has('dialogs.encrypt') },
     debug: { showMessageIds: data.has('debug.showMessageIds') },
     ui: {
       hideClips: data.has('ui.hideClips'), hideStories: data.has('ui.hideStories'), compactMenu: data.has('ui.compactMenu'), customCss: String(data.get('ui.customCss') || ''),
@@ -32,7 +32,7 @@ async function init() {
   const saved = await chrome.storage.sync.get(Object.keys(defaults));
   const values = { modules: { ...defaults.modules, ...saved.modules }, dialogs: { ...defaults.dialogs, ...saved.dialogs }, debug: { ...defaults.debug, ...saved.debug }, ui: { ...defaults.ui, ...saved.ui } };
   for (const [id, enabled] of Object.entries(values.modules)) form.elements[`module.${id}`].checked = enabled;
-  for (const key of ['incremental', 'anonymize', 'includeAttachments']) form.elements[`dialogs.${key}`].checked = values.dialogs[key];
+  for (const key of ['incremental', 'anonymize', 'includeAttachments', 'encrypt']) form.elements[`dialogs.${key}`].checked = values.dialogs[key];
   form.elements['debug.showMessageIds'].checked = values.debug.showMessageIds;
   for (const key of ['hideClips', 'hideStories', 'compactMenu']) form.elements[`ui.${key}`].checked = values.ui[key];
   form.elements['ui.customCss'].value = values.ui.customCss;

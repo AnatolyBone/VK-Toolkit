@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- Password-protected `.vkt` archives using AES-256-GCM and PBKDF2-SHA-256.
+- Local decryptor page that restores the original ZIP without uploading data.
+
+### Security
+
+- Passwords are requested at export time, kept only in memory and never written to extension storage.
+- Authenticated encryption detects an incorrect password and any encrypted archive corruption.
+
 ## 0.3.1
 
 ### Added

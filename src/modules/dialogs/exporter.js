@@ -1,6 +1,8 @@
+import { encryptBytes } from '../../core/encryption.js';
+
 const encoder = new TextEncoder();
 
-export async function exportDialog(snapshot, { logger, settings = {}, incrementalFrom = null } = {}) {
+export async function exportDialog(snapshot, { logger, settings = {}, incrementalFrom = null, password = '' } = {}) {
   snapshot = prepareSnapshot(snapshot, settings, incrementalFrom);
   if (!snapshot.messages.length) throw new Error(incrementalFrom == null ? 'Нет сообщений для экспорта' : 'Новых сообщений после прошлого экспорта нет');
   const folder = 'VK Dialog Export/';
@@ -20,9 +22,12 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
   const verificationTarget = await archiveManifest(snapshot, entries, media);
   entries.push({ name: `${folder}verify.html`, data: asVerifier(verificationTarget) });
   entries.push({ name: `${folder}archive.json`, data: pretty(await archiveManifest(snapshot, entries, media)) });
-  const blob = new Blob([createZip(entries)], { type: 'application/zip' });
+  const zip = createZip(entries);
+  const encrypted = Boolean(settings.encrypt);
+  const output = encrypted ? await encryptBytes(zip, password) : zip;
+  const blob = new Blob([output], { type: encrypted ? 'application/octet-stream' : 'application/zip' });
   const url = URL.createObjectURL(blob);
-  const link = Object.assign(document.createElement('a'), { href: url, download: archiveFileName(snapshot) });
+  const link = Object.assign(document.createElement('a'), { href: url, download: archiveFileName(snapshot).replace(/\.zip$/, encrypted ? '.vkt' : '.zip') });
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
   return { count: snapshot.messages.length, maxCmid: snapshot.stats.max };

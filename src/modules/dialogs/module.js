@@ -17,11 +17,18 @@ export default {
     const collector = new DialogCollector({ logger, events: ctx.events });
     const network = new DialogNetwork((payload) => collector.ingestNetwork(payload), logger);
     const exportCurrent = async () => {
-      const settings = await ctx.storage.get('dialogs', { incremental: false, anonymize: false, includeAttachments: true });
+      const settings = await ctx.storage.get('dialogs', { incremental: false, anonymize: false, includeAttachments: true, encrypt: false });
+      let password = '';
+      if (settings.encrypt) {
+        password = window.prompt('Пароль для зашифрованного архива VK Toolkit:') || '';
+        if (!password) throw new Error('Шифрование отменено: пароль не задан');
+        const confirmation = window.prompt('Повторите пароль:') || '';
+        if (password !== confirmation) throw new Error('Пароли не совпадают');
+      }
       const snapshot = collector.snapshot();
       const local = await chrome.storage.local.get('dialogArchiveState');
       const previous = local.dialogArchiveState?.[snapshot.peerId] || {};
-      const result = await exportDialog(snapshot, { logger, settings, incrementalFrom: settings.incremental ? previous.lastCmid : null });
+      const result = await exportDialog(snapshot, { logger, settings, password, incrementalFrom: settings.incremental ? previous.lastCmid : null });
       if (result.maxCmid != null) {
         await chrome.storage.local.set({ dialogArchiveState: { ...(local.dialogArchiveState || {}), [snapshot.peerId]: { lastCmid: result.maxCmid, exportedAt: new Date().toISOString(), title: snapshot.title } } });
       }
