@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+
+- Attachment filters for photos, stickers, voice messages, audio, documents and video in `viewer.html`.
+- Fullscreen image lightbox for local and linked photos.
+- Native audio and video players with lazy media loading.
+- Document cards that distinguish local files from external links.
+- Search across message text, authors, attachment names and URLs.
+
+### Changed
+
+- Viewer summary now reports both visible messages and attachment count.
+- CMID navigation clears attachment filters before locating a message.
+
 ## 0.6.1
 
 ### Fixed
