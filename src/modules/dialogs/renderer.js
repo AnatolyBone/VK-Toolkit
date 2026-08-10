@@ -29,7 +29,7 @@ export class DialogRenderer {
         #vk-toolkit-dialogs .vkt-export-wizard{position:absolute;right:0;bottom:0;width:310px;padding:15px;background:#222326;border:1px solid #555;border-radius:12px;box-shadow:0 10px 35px #000a}#vk-toolkit-dialogs .vkt-export-wizard [hidden]{display:none!important}#vk-toolkit-dialogs .vkt-export-wizard h3{margin:0 0 10px;font-size:15px}#vk-toolkit-dialogs .vkt-export-wizard label{display:grid;gap:4px;margin:8px 0;color:#c8cbd0}#vk-toolkit-dialogs .vkt-export-wizard label.vkt-check{display:flex;align-items:center}#vk-toolkit-dialogs .vkt-export-wizard input,#vk-toolkit-dialogs .vkt-export-wizard select{box-sizing:border-box;width:100%;padding:7px;color:#fff;background:#151617;border:1px solid #4b4e53;border-radius:7px}#vk-toolkit-dialogs .vkt-export-wizard input[type=checkbox]{width:auto}#vk-toolkit-dialogs .vkt-export-summary{padding:8px;margin:10px 0;color:#aeb4bd;background:#171819;border-radius:7px}#vk-toolkit-dialogs .vkt-wizard-actions{display:flex;gap:7px}
       </style>
       <header><span>VK Toolkit · Диалог</span><small data-dialog-title>Определение диалога…</small></header>
-      <div class="vkt-stats"><span>Получено:</span><b data-count>0 сообщений</b><span>CMID:</span><b data-range>—</b><span>Пропусков:</span><b data-gaps>0</b><span>Текст:</span><b data-size>0 КБ</b></div>
+      <div class="vkt-stats"><span>Получено:</span><b data-count>0 сообщений</b><span>CMID:</span><b data-range>—</b><span>Пропусков:</span><b data-gaps>0</b><span>Не собрано:</span><b data-uncollected>0</b><span>Текст:</span><b data-size>0 КБ</b></div>
       <div class="vkt-progress" title="Охват CMID"><i data-progress></i></div>
       <div class="vkt-health" data-health data-state="idle">Сбор ещё не запускался</div>
       <div class="vkt-actions"><button data-collect>Собрать</button><button data-pause title="Пауза">Ⅱ</button><button data-stop title="Остановить сбор">■</button><button data-cancel-export title="Отменить экспорт">✕</button><button data-export disabled>ZIP</button></div><div class="vkt-error" hidden></div>
@@ -126,7 +126,9 @@ export class DialogRenderer {
     }
     const attachments = messages.reduce((sum, message) => sum + (message.attachments?.length || 0), 0);
     const textBytes = messages.reduce((sum, message) => sum + utf8Encoder.encode(message.text || '').length, 0);
-    this.wizard.querySelector('[data-wizard-summary]').textContent = `${messages.length} сообщений · ${attachments} вложений · текст ${formatBytes(textBytes)}${options.downloadMedia ? ' · размер медиа определяется при загрузке' : ' · быстрый режим'}`;
+    const coverage = this.collector.store.stats();
+    const warning = coverage.uncollected ? ` · ⚠ вероятно не собрано ${coverage.uncollected} CMID — можно отменить и продолжить сбор` : '';
+    this.wizard.querySelector('[data-wizard-summary]').textContent = `${messages.length} сообщений · ${attachments} вложений · текст ${formatBytes(textBytes)}${options.downloadMedia ? ' · размер медиа определяется при загрузке' : ' · быстрый режим'}${warning}`;
   }
 
   cancelExport() {
@@ -163,7 +165,8 @@ export class DialogRenderer {
     this.root.querySelector('[data-count]').textContent = `${stats.count} сообщений`;
     this.root.querySelector('[data-range]').textContent = stats.min == null ? '—' : `${stats.min} – ${stats.max}`;
     this.root.querySelector('[data-gaps]').textContent = String(stats.gaps);
-    const coverage = stats.max > 0 && stats.min != null ? Math.max(0, Math.min(100, ((stats.max - stats.min + 1 - stats.gaps) / stats.max) * 100)) : 0;
+    this.root.querySelector('[data-uncollected]').textContent = String(stats.uncollected || 0);
+    const coverage = stats.coverage ?? 0;
     this.root.querySelector('[data-progress]').style.width = `${coverage}%`;
     const textBytes = snapshot.messages.reduce((sum, message) => sum + utf8Encoder.encode(message.text || '').length, 0);
     this.root.querySelector('[data-size]').textContent = textBytes < 1_000_000 ? `${Math.ceil(textBytes / 1024)} КБ` : `${(textBytes / 1_048_576).toFixed(1)} МБ`;
@@ -192,10 +195,11 @@ export class DialogRenderer {
     if (collection?.status === 'cancelled') { health.dataset.state = 'warn'; health.textContent = 'Сбор остановлен пользователем'; return; }
     if (collection?.status === 'restored') { health.dataset.state = 'ok'; health.textContent = 'Восстановлена сохранённая сессия · можно продолжить'; return; }
     if (collection?.status === 'complete') { health.dataset.state = 'ok'; health.textContent = 'Достигнуто начало переписки'; return; }
-    if (collection?.status === 'stable' && stats.count) { health.dataset.state = stats.gaps ? 'warn' : 'ok'; health.textContent = stats.gaps ? `Сбор завершён · отсутствуют CMID: ${stats.gaps}` : 'Сбор завершён · диапазон непрерывный'; return; }
+    if (collection?.status === 'stable' && stats.count) { health.dataset.state = stats.uncollected || stats.gaps ? 'warn' : 'ok'; health.textContent = stats.uncollected ? `Собран фрагмент · продолжите сбор (${stats.coverage}% покрытия диапазона)` : stats.gaps ? `Сбор завершён · отдельных пропусков: ${stats.gaps}` : 'Сбор завершён · диапазон непрерывный'; return; }
     if (!stats.count) { health.dataset.state = 'idle'; health.textContent = 'Сбор ещё не запускался'; }
     else if (stats.min == null) { health.dataset.state = 'warn'; health.textContent = 'DOM fallback: CMID пока не получены'; }
-    else if (stats.gaps) { health.dataset.state = 'warn'; health.textContent = `Отсутствующие CMID: ${stats.gaps}`; }
+    else if (stats.uncollected) { health.dataset.state = 'warn'; health.textContent = `Собран фрагмент · вероятно не собрано CMID: ${stats.uncollected}`; }
+    else if (stats.gaps) { health.dataset.state = 'warn'; health.textContent = `Отдельные пропуски CMID: ${stats.gaps}`; }
     else { health.dataset.state = 'ok'; health.textContent = 'Диапазон CMID непрерывный'; }
   }
 

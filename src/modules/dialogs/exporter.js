@@ -1,4 +1,5 @@
 import { encryptBytes } from '../../core/encryption.js';
+import { analyzeCmids } from './dedupe.js';
 
 const encoder = new TextEncoder();
 
@@ -72,10 +73,8 @@ function prepareSnapshot(snapshot, settings, incrementalFrom) {
     if (settings.includeAttachments === false) copy.attachments = [];
     return copy;
   });
-  const cmids = messages.map((item) => item.conversation_message_id).filter(Number.isFinite);
-  const unique = new Set(cmids); const min = cmids.length ? Math.min(...cmids) : null; const max = cmids.length ? Math.max(...cmids) : null; const missingCmids = [];
-  if (min != null && max != null) for (let id = min; id <= max; id++) if (!unique.has(id)) missingCmids.push(id);
-  return { ...snapshot, peerId: settings.anonymize ? null : snapshot.peerId, title: settings.anonymize ? 'Обезличенный диалог' : snapshot.title, messages, incrementalFrom, stats: { count: messages.length, min, max, gaps: missingCmids.length, missingCmids } };
+  const coverage = analyzeCmids(messages);
+  return { ...snapshot, peerId: settings.anonymize ? null : snapshot.peerId, title: settings.anonymize ? 'Обезличенный диалог' : snapshot.title, messages, incrementalFrom, stats: { count: messages.length, ...coverage } };
 }
 
 async function archiveManifest(snapshot, entries, media) {
@@ -90,7 +89,7 @@ async function archiveManifest(snapshot, entries, media) {
     files.push({ path: entry.name.replace(/^VK Dialog Export\//, ''), bytes: data.length, sha256: await sha256(data) });
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generator: { name: 'VK Toolkit', version: chrome.runtime.getManifest().version },
     exportedAt: new Date().toISOString(),
     peerId: snapshot.peerId,
@@ -98,11 +97,20 @@ async function archiveManifest(snapshot, entries, media) {
     incrementalFrom: snapshot.incrementalFrom,
     messages: {
       count: snapshot.stats.count,
-      cmid: { min: snapshot.stats.min, max: snapshot.stats.max, missing: snapshot.stats.missingCmids || [] },
+      cmid: {
+        min: snapshot.stats.min,
+        max: snapshot.stats.max,
+        coverage: snapshot.stats.coverage,
+        missingCount: snapshot.stats.gaps || 0,
+        missingRanges: snapshot.stats.missingRanges || [],
+        probablyUncollectedCount: snapshot.stats.uncollected || 0,
+        probablyUncollectedRanges: snapshot.stats.uncollectedRanges || [],
+        collectedSegments: snapshot.stats.segments || [],
+      },
       sources,
     },
     media,
-    note: 'Missing CMIDs can represent deleted or service messages and do not by themselves prove an incomplete export.',
+    note: 'Short CMID gaps can be deleted or service messages. Large ranges are marked as probably uncollected and should be checked by continuing history collection.',
     files,
   };
 }

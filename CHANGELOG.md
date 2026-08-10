@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- Compact CMID range analysis with collected segments and coverage percentage.
+- Separate short missing ranges from large, probably uncollected history ranges.
+- Incomplete-history warning in the export wizard.
+
+### Changed
+
+- `archive.json` schema version 2 stores compact ranges instead of thousands of individual missing CMIDs.
+- Dialog panel now reports probable uncollected history separately from individual gaps.
+- CMID analysis runs in linear time over collected IDs and no longer iterates across every absent number.
+
 ## 0.7.0
 
 ### Added

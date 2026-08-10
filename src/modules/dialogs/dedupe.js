@@ -23,13 +23,7 @@ export class MessageStore {
     return [...this.messages.values()].sort((a, b) => (a.conversation_message_id ?? Infinity) - (b.conversation_message_id ?? Infinity) || String(a.date).localeCompare(String(b.date)));
   }
   stats() {
-    const cmids = this.values().map((item) => item.conversation_message_id).filter(Number.isFinite);
-    const unique = new Set(cmids);
-    const min = cmids.length ? Math.min(...cmids) : null;
-    const max = cmids.length ? Math.max(...cmids) : null;
-    const missingCmids = [];
-    if (min != null && max != null) for (let id = min; id <= max; id++) if (!unique.has(id)) missingCmids.push(id);
-    return { count: this.messages.size, min, max, gaps: missingCmids.length, missingCmids };
+    return { count: this.messages.size, ...analyzeCmids(this.values()) };
   }
 
   findFallback(message) {
@@ -39,6 +33,25 @@ export class MessageStore {
   hasNetworkEquivalent(message) {
     return [...this.messages.values()].some((item) => item.conversation_message_id != null && equivalentContent(item, message));
   }
+}
+
+export function analyzeCmids(messages, unloadedThreshold = 20) {
+  const ids = [...new Set(messages.map((item) => item.conversation_message_id).filter(Number.isFinite))].sort((a, b) => a - b);
+  if (!ids.length) return { min: null, max: null, gaps: 0, uncollected: 0, missingTotal: 0, missingRanges: [], uncollectedRanges: [], segments: [], coverage: null };
+  const missingRanges = []; const uncollectedRanges = []; const segments = [];
+  let segmentStart = ids[0]; let gaps = 0; let uncollected = 0;
+  for (let index = 1; index < ids.length; index++) {
+    const previous = ids[index - 1]; const current = ids[index];
+    if (current === previous + 1) continue;
+    segments.push({ from: segmentStart, to: previous, count: previous - segmentStart + 1 });
+    const range = { from: previous + 1, to: current - 1, count: current - previous - 1 };
+    if (range.count > unloadedThreshold) { uncollectedRanges.push(range); uncollected += range.count; }
+    else { missingRanges.push(range); gaps += range.count; }
+    segmentStart = current;
+  }
+  segments.push({ from: segmentStart, to: ids.at(-1), count: ids.at(-1) - segmentStart + 1 });
+  const min = ids[0]; const max = ids.at(-1); const span = max - min + 1;
+  return { min, max, gaps, uncollected, missingTotal: gaps + uncollected, missingRanges, uncollectedRanges, segments, coverage: Math.round((ids.length / span) * 10_000) / 100 };
 }
 
 function equivalentContent(left, right) {
