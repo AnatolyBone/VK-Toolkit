@@ -231,18 +231,18 @@ function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (cha
 async function appendMedia(entries, messages, folder, logger, onProgress, signal) {
   const maxTotalBytes = 200_000_000;
   const references = collectMediaReferences(messages);
-  const report = { discovered: references.length, downloaded: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
-  notifyProgress(onProgress, { stage: 'media', current: 0, total: references.length, downloaded: 0, bytes: 0 });
+  const report = { discovered: references.length, downloaded: 0, cacheHits: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
+  notifyProgress(onProgress, { stage: 'media', current: 0, total: references.length, downloaded: 0, cacheHits: 0, bytes: 0 });
   for (let index = 0; index < references.length; index++) {
     throwIfAborted(signal);
     const reference = references[index];
     if (!isDirectMediaUrl(reference.url)) {
       report.unavailable.push({ ...reference, reason: reference.url ? 'Вложение доступно только как ссылка' : 'URL вложения не найден' });
-      notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, bytes: report.totalBytes });
+      notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, cacheHits: report.cacheHits, bytes: report.totalBytes });
       continue;
     }
     try {
-      const { data, contentType } = await fetchMediaWithRetry(reference.url, 3, signal);
+      const { data, contentType, cached } = await fetchMediaWithRetry(reference.url, 3, signal);
       if (report.totalBytes + data.length > maxTotalBytes) {
         report.unavailable.push({ ...reference, reason: 'Превышен общий лимит медиа 200 МБ' });
         continue;
@@ -251,10 +251,11 @@ async function appendMedia(entries, messages, folder, logger, onProgress, signal
       const path = mediaPath(reference, index, extension);
       entries.push({ name: `${folder}${path}`, data });
       report.downloaded++;
+      if (cached) report.cacheHits++;
       report.totalBytes += data.length;
-      report.files.push({ ...reference, path, bytes: data.length, contentType });
+      report.files.push({ ...reference, path, bytes: data.length, contentType, cached });
     } catch (error) { report.unavailable.push({ ...reference, reason: error.message || String(error) }); logger?.warn('Media was left as a link', reference.url, error); }
-    notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, bytes: report.totalBytes });
+    notifyProgress(onProgress, { stage: 'media', current: index + 1, total: references.length, downloaded: report.downloaded, cacheHits: report.cacheHits, bytes: report.totalBytes });
   }
   return report;
 }
@@ -279,6 +280,7 @@ function skipMediaDownloads(messages, onProgress) {
   return {
     discovered: references.length,
     downloaded: 0,
+    cacheHits: 0,
     totalBytes: 0,
     limitBytes: 200_000_000,
     downloadSkipped: true,
@@ -327,7 +329,7 @@ async function fetchMedia(url, signal) {
       const bytes = fromBase64(response.base64);
       output.set(bytes, offset); offset += bytes.length;
     }
-    return { data: output, contentType: meta.contentType };
+    return { data: output, contentType: meta.contentType, cached: Boolean(meta.cached) };
   } finally {
     chrome.runtime.sendMessage({ type: 'media:release', token: meta.token }).catch(() => {});
   }

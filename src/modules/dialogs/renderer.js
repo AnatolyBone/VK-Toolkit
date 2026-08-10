@@ -152,7 +152,7 @@ export class DialogRenderer {
       complete: `Готово · скачан один архив${mb}`,
     };
     health.textContent = detail.stage === 'media'
-      ? `Вложения ${detail.current}/${detail.total} · скачано ${detail.downloaded}${mb}`
+      ? `Вложения ${detail.current}/${detail.total} · готово ${detail.downloaded} · из кэша ${detail.cacheHits || 0}${mb}`
       : labels[detail.stage] || 'Экспорт…';
     if (detail.stage === 'media') this.exportButton.textContent = detail.total ? `${Math.round((detail.current / detail.total) * 100)}%` : '…';
     else this.exportButton.textContent = detail.stage === 'complete' ? '✓' : '…';

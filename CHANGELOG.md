@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+
+- Persistent extension media cache with a 500 MB limit and least-recently-used eviction.
+- Cache hit counters in live export progress and `archive.json`.
+- Media cache size, file count and clear action in the popup.
+
+### Changed
+
+- Repeated exports reuse cached VK CDN responses instead of downloading identical URLs again.
+- Cache entries retain content type and are still subject to the existing per-file and archive limits.
+
 ## 0.8.0
 
 ### Added
