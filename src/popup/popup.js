@@ -10,6 +10,11 @@ const status = document.querySelector('#status');
 init().catch(showError);
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
+  await saveSettings('Настройки сохранены');
+});
+form.addEventListener('change', () => saveSettings('Сохранено автоматически'));
+
+async function saveSettings(message) {
   const data = new FormData(form);
   const settings = {
     modules: Object.fromEntries(Object.keys(defaults.modules).map((id) => [id, data.has(`module.${id}`)])),
@@ -19,9 +24,13 @@ form.addEventListener('submit', async (event) => {
       hideClips: data.has('ui.hideClips'), hideStories: data.has('ui.hideStories'), compactMenu: data.has('ui.compactMenu'), customCss: String(data.get('ui.customCss') || ''),
     },
   };
-  try { await chrome.storage.sync.set(settings); status.textContent = 'Настройки сохранены'; setTimeout(() => { status.textContent = ''; }, 1600); }
+  try {
+    await chrome.storage.sync.set(settings);
+    status.style.color = '#72ca84'; status.textContent = message;
+    setTimeout(() => { status.textContent = ''; }, 1600);
+  }
   catch (error) { showError(error); }
-});
+}
 document.querySelector('#resetArchives').addEventListener('click', async () => {
   const saved = await chrome.storage.local.get(null);
   const sessionKeys = Object.keys(saved).filter((key) => key.startsWith('dialogCollectorSession:'));

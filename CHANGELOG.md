@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2
+
+### Fixed
+
+- Dialog settings now save immediately when a checkbox changes.
+- The dialog export button now displays `VKT` when encrypted export is active and `ZIP` otherwise.
+- Encryption state changes are reflected on an open VK page without reloading the extension.
+- Password prompts and decryptor instructions now explain that the user creates the password and VK Toolkit cannot recover it.
+
 ## 0.4.1
 
 ### Added

@@ -20,9 +20,9 @@ export default {
       const settings = await ctx.storage.get('dialogs', { incremental: false, anonymize: false, includeAttachments: true, encrypt: false });
       let password = '';
       if (settings.encrypt) {
-        password = window.prompt('Пароль для зашифрованного архива VK Toolkit:') || '';
+        password = window.prompt('Придумайте пароль для этого архива .vkt.\n\nVK Toolkit не сохраняет пароль — он понадобится вам при расшифровке:') || '';
         if (!password) throw new Error('Шифрование отменено: пароль не задан');
-        const confirmation = window.prompt('Повторите пароль:') || '';
+        const confirmation = window.prompt('Повторите придуманный пароль для проверки:') || '';
         if (password !== confirmation) throw new Error('Пароли не совпадают');
       }
       const snapshot = collector.snapshot();
@@ -40,16 +40,25 @@ export default {
       onStop: () => collector.cancel(),
       onExport: exportCurrent,
     });
+    const updateExportFormat = async () => {
+      const settings = await ctx.storage.get('dialogs', { encrypt: false });
+      renderer.setExportFormat(Boolean(settings.encrypt));
+    };
+    const onStorageChange = (changes, area) => {
+      if (area === 'sync' && changes.dialogs) renderer.setExportFormat(Boolean(changes.dialogs.newValue?.encrypt));
+    };
     const refresh = () => renderer.setVisible(isMessagesPage() && Boolean(getPeerId()));
 
     network.start();
     collector.start();
     renderer.mount();
+    updateExportFormat();
+    chrome.storage.onChanged.addListener(onStorageChange);
     refresh();
     const refreshTimer = setInterval(refresh, 1000);
     window.addEventListener('popstate', refresh);
     window.addEventListener('hashchange', refresh);
-    state = { collector, network, renderer, refresh, refreshTimer };
+    state = { collector, network, renderer, refresh, refreshTimer, onStorageChange };
     logger.info('Initialized');
   },
 
@@ -58,6 +67,7 @@ export default {
     state.network.stop();
     state.collector.stop();
     state.renderer.unmount();
+    chrome.storage.onChanged.removeListener(state.onStorageChange);
     window.removeEventListener('popstate', state.refresh);
     window.removeEventListener('hashchange', state.refresh);
     clearInterval(state.refreshTimer);

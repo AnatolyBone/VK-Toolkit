@@ -69,6 +69,12 @@ export class DialogRenderer {
     this.exportButton.disabled = stats.count === 0;
   }
 
+  setExportFormat(encrypted) {
+    if (!this.exportButton) return;
+    this.exportButton.textContent = encrypted ? 'VKT' : 'ZIP';
+    this.exportButton.title = encrypted ? 'Зашифрованный архив .vkt' : 'Обычный ZIP-архив';
+  }
+
   updateHealth(stats, collection) {
     const health = this.root.querySelector('[data-health]');
     if (collection?.active) {
