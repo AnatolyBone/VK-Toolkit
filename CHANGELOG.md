@@ -1,25 +1,20 @@
 # Changelog
 
-## 0.2.0-dev
+## 0.2.0
+
+### Changed
+
+- Migrated project to modular architecture.
+- Updated manifest for src-based structure.
+- Added popup foundation.
 
 ### Added
 
-- Modular architecture documentation
-- Roadmap
-- Module documentation
-- Development guidelines
-
-### Planned
-
-- Module manager
-- Wall tools
-- Profile tools
-- Media tools
+- Core module manager.
+- Storage layer.
+- Event bus.
+- Module skeletons.
 
 ## 0.1.0
 
-- Initial VK Toolkit release
-- Dialog exporter
-- Debug tools
-- Photo helpers
-- UI tweaks
+- Initial VK Toolkit release.
