@@ -1,23 +1,25 @@
 {
   "manifest_version": 3,
   "name": "VK Toolkit",
-  "version": "0.1.0",
-  "description": "Локальный набор инструментов для VK: экспорт диалогов, ID/CMID сообщений, фото-инструменты и UI-твики.",
+  "version": "0.2.0",
+  "description": "Модульный набор инструментов для VK.",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "tabs"],
   "host_permissions": ["https://vk.ru/*", "https://m.vk.ru/*", "https://vk.com/*", "https://m.vk.com/*"],
-  "action": {"default_title": "VK Toolkit", "default_popup": "popup.html"},
+  "action": {
+    "default_title": "VK Toolkit",
+    "default_popup": "src/popup/popup.html"
+  },
   "content_scripts": [
     {
       "matches": ["https://vk.ru/*", "https://m.vk.ru/*", "https://vk.com/*", "https://m.vk.com/*"],
-      "js": ["page-hook.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": ["https://vk.ru/*", "https://m.vk.ru/*", "https://vk.com/*", "https://m.vk.com/*"],
-      "js": ["messages-export.js", "toolkit-content.js"],
-      "css": ["toolkit.css"],
+      "js": ["src/bootstrap.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/*"],
+      "matches": ["https://vk.ru/*", "https://m.vk.ru/*", "https://vk.com/*", "https://m.vk.com/*"]
     }
   ]
 }
