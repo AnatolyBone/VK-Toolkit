@@ -112,7 +112,7 @@ async function sha256(data) {
 }
 
 function publicMessage(item) {
-  return { id: item.id, date: item.date, author: item.author, text: item.text, attachments: item.attachments };
+  return { id: item.id, conversation_message_id: item.conversation_message_id, date: item.date, author: item.author, text: item.text, attachments: item.attachments };
 }
 function pretty(value) { return JSON.stringify(value, null, 2); }
 function buildAnalytics(messages) {
@@ -134,7 +134,7 @@ function asHtml(messages, peerId) {
 }
 export function asViewer(messages, snapshot, mediaFiles = []) {
   const localMedia = new Map(mediaFiles.map((item) => [item.url, item.path]));
-  const payload = JSON.stringify(messages.map((message) => ({ ...publicMessage(message), cmid: message.conversation_message_id, attachments: (message.attachments || []).map((item) => { const url = attachmentUrl(item); return { url, local: localMedia.get(url) || '' }; }) }))).replace(/</g, '\\u003c');
+  const payload = JSON.stringify(messages.map((message) => ({ ...publicMessage(message), cmid: message.conversation_message_id, attachments: (message.attachments || []).map((item) => { const info = attachmentInfo(item); return { ...info, local: localMedia.get(info.url) || '' }; }) }))).replace(/</g, '\\u003c');
   const title = escapeHtml(snapshot.title || `Диалог ${snapshot.peerId || ''}`);
   return `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title} · VK Toolkit</title><style>
   :root{color-scheme:light dark;--bg:#eef1f5;--card:#fff;--text:#1d2733;--muted:#6d7885;--accent:#447bba}body.dark{--bg:#151719;--card:#222529;--text:#edf0f3;--muted:#9ba3ad}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif}header{position:sticky;top:0;z-index:2;padding:16px;background:var(--card);box-shadow:0 1px 8px #0002}h1{max-width:980px;margin:0 auto 10px;font-size:20px}.tools,.summary{display:flex;max-width:980px;margin:auto;gap:8px;flex-wrap:wrap}.summary{margin-top:9px;color:var(--muted)}input,select,button{border:1px solid #8885;border-radius:8px;padding:8px;background:var(--bg);color:var(--text)}input{flex:1;min-width:220px}button{cursor:pointer}.messages{max-width:980px;margin:16px auto;padding:0 12px}.message{margin:8px 0;padding:12px 14px;background:var(--card);border-radius:10px}.message header{position:static;display:flex;padding:0 0 5px;box-shadow:none;gap:8px}.message time,.cmid{color:var(--muted);font-size:12px}.cmid{margin-left:auto}.empty{text-align:center;color:var(--muted);padding:50px}.attachment{display:block;margin-top:7px;word-break:break-all;color:var(--accent)}img.attachment{max-width:min(100%,600px);max-height:500px;border-radius:8px}audio.attachment{width:min(100%,480px)}</style>
@@ -142,32 +142,93 @@ export function asViewer(messages, snapshot, mediaFiles = []) {
   <script type="application/json" id="data">${payload}</script><script>(()=>{const data=JSON.parse(document.querySelector('#data').textContent),root=document.querySelector('#messages'),search=document.querySelector('#search'),author=document.querySelector('#author'),cmid=document.querySelector('#cmid');[...new Set(data.map(x=>x.author).filter(Boolean))].sort().forEach(x=>author.add(new Option(x,x)));const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),media=v=>{const u=v.local||v.url||'',safe=/^(?:https:\\/\\/|media\\/)/i.test(u);if(!safe)return'';if(/\\.(?:jpe?g|png|gif|webp|avif)$/i.test(u))return'<img class="attachment" loading="lazy" src="'+esc(u)+'">';if(/\\.(?:mp3|ogg|m4a|wav)$/i.test(u))return'<audio class="attachment" controls src="'+esc(u)+'"></audio>';return'<a class="attachment" target="_blank" rel="noopener noreferrer" href="'+esc(u)+'">'+esc(v.url||u)+'</a>'};function render(){const q=search.value.toLowerCase(),a=author.value;const rows=data.filter(x=>(!q||x.text.toLowerCase().includes(q))&&(!a||x.author===a));root.innerHTML=rows.length?rows.map(x=>'<article class="message" data-cmid="'+(x.cmid??'')+'"><header><b>'+esc(x.author||'Без автора')+'</b><time>'+esc(x.date)+'</time><span class="cmid">CMID '+esc(x.cmid??'—')+'</span></header><div>'+esc(x.text).replace(/\\n/g,'<br>')+'</div>'+(x.attachments||[]).map(media).join('')+'</article>').join(''):'<div class="empty">Сообщения не найдены</div>';document.querySelector('#summary').textContent='Показано '+rows.length+' из '+data.length+' · Авторов '+new Set(data.map(x=>x.author).filter(Boolean)).size;}search.oninput=author.onchange=render;cmid.onchange=()=>document.querySelector('[data-cmid="'+CSS.escape(cmid.value)+'"]')?.scrollIntoView({behavior:'smooth',block:'center'});document.querySelector('#theme').onclick=()=>document.body.classList.toggle('dark');render()})()</script></html>`;
 }
 function attachmentHtml(items = []) { return items.map((item) => { const url = attachmentUrl(item); return url ? `<p><a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>` : ''; }).join(''); }
-function attachmentUrl(item) {
-  if (typeof item === 'string') return item;
-  return item?.url || item?.photo?.orig_photo?.url || item?.video?.player || item?.doc?.url || '';
+function attachmentUrl(item) { return attachmentInfo(item).url; }
+
+export function attachmentInfo(item) {
+  if (typeof item === 'string') return { type: inferMediaType(item), url: item, name: '' };
+  if (!item || typeof item !== 'object') return { type: 'attachment', url: '', name: '' };
+  const type = item.type || Object.keys(item).find((key) => ['photo', 'doc', 'audio', 'audio_message', 'video', 'sticker', 'graffiti'].includes(key)) || 'attachment';
+  const value = item[type] || item;
+  if (type === 'photo') {
+    const sizes = [...(value.sizes || []), value.orig_photo].filter((entry) => entry?.url);
+    const best = sizes.sort((left, right) => mediaArea(right) - mediaArea(left))[0];
+    return { type, url: best?.url || value.max_size_url || value.url || '', name: '' };
+  }
+  if (type === 'audio_message') return { type: 'voice', url: value.link_mp3 || value.link_ogg || value.url || '', name: value.title || 'Голосовое сообщение' };
+  if (type === 'doc') return { type: 'document', url: value.url || '', name: value.title || value.name || '' };
+  if (type === 'audio') return { type, url: value.url || '', name: [value.artist, value.title].filter(Boolean).join(' — ') };
+  if (type === 'sticker') {
+    const images = [...(value.images_with_background || []), ...(value.images || [])].filter((entry) => entry?.url);
+    const best = images.sort((left, right) => mediaArea(right) - mediaArea(left))[0];
+    return { type, url: best?.url || value.url || '', name: '' };
+  }
+  return { type, url: value.url || value.player || item.url || '', name: value.title || value.name || '' };
+}
+
+function mediaArea(item) { return Number(item?.width || 0) * Number(item?.height || 0); }
+function inferMediaType(url) {
+  if (/\.(?:jpe?g|png|gif|webp|avif)(?:$|[?#])/i.test(url)) return 'photo';
+  if (/\.(?:mp3|ogg|m4a|wav)(?:$|[?#])/i.test(url)) return 'audio';
+  if (/\.(?:mp4|webm)(?:$|[?#])/i.test(url)) return 'video';
+  return 'attachment';
 }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 
 async function appendMedia(entries, messages, folder, logger) {
   const maxTotalBytes = 200_000_000;
-  const urls = [...new Set(messages.flatMap((m) => m.attachments || []).map(attachmentUrl).filter(isDirectMediaUrl))];
-  const report = { discovered: urls.length, downloaded: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
-  for (let index = 0; index < urls.length; index++) {
+  const references = collectMediaReferences(messages);
+  const report = { discovered: references.length, downloaded: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
+  for (let index = 0; index < references.length; index++) {
+    const reference = references[index];
+    if (!isDirectMediaUrl(reference.url)) {
+      report.unavailable.push({ ...reference, reason: reference.url ? 'Вложение доступно только как ссылка' : 'URL вложения не найден' });
+      continue;
+    }
     try {
-      const { data, contentType } = await fetchMedia(urls[index]);
+      const { data, contentType } = await fetchMediaWithRetry(reference.url, 3);
       if (report.totalBytes + data.length > maxTotalBytes) {
-        report.unavailable.push({ url: urls[index], reason: 'Превышен общий лимит медиа 200 МБ' });
+        report.unavailable.push({ ...reference, reason: 'Превышен общий лимит медиа 200 МБ' });
         continue;
       }
-      const extension = mimeExtension(contentType) || urlExtension(urls[index]);
-      const path = `media/${String(index + 1).padStart(4, '0')}.${extension}`;
+      const extension = mimeExtension(contentType) || urlExtension(reference.url);
+      const path = mediaPath(reference, index, extension);
       entries.push({ name: `${folder}${path}`, data });
       report.downloaded++;
       report.totalBytes += data.length;
-      report.files.push({ url: urls[index], path, bytes: data.length });
-    } catch (error) { report.unavailable.push({ url: urls[index], reason: error.message || String(error) }); logger?.warn('Media was left as a link', urls[index], error); }
+      report.files.push({ ...reference, path, bytes: data.length, contentType });
+    } catch (error) { report.unavailable.push({ ...reference, reason: error.message || String(error) }); logger?.warn('Media was left as a link', reference.url, error); }
   }
   return report;
+}
+
+function collectMediaReferences(messages) {
+  const unique = new Map();
+  for (const message of messages) for (const item of message.attachments || []) {
+    const info = attachmentInfo(item);
+    const key = info.url || `${message.conversation_message_id}:${info.type}:${info.name}`;
+    const cmid = message.conversation_message_id ?? null;
+    if (unique.has(key)) {
+      const reference = unique.get(key);
+      if (cmid != null && !reference.cmids.includes(cmid)) reference.cmids.push(cmid);
+    } else unique.set(key, { ...info, cmids: cmid == null ? [] : [cmid] });
+  }
+  return [...unique.values()];
+}
+
+function mediaPath(reference, index, extension) {
+  const cmid = reference.cmids[0] ?? 'unknown';
+  const type = sanitizeFilePart(reference.type || 'attachment').toLowerCase().replace(/\s+/g, '-') || 'attachment';
+  const name = sanitizeFilePart(reference.name).replace(/\.[a-z0-9]{1,8}$/i, '').slice(0, 45);
+  return `media/cmid-${cmid}-${type}-${String(index + 1).padStart(4, '0')}${name ? `-${name}` : ''}.${extension}`;
+}
+
+async function fetchMediaWithRetry(url, attempts) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try { return await fetchMedia(url); }
+    catch (error) { lastError = error; if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 500)); }
+  }
+  throw new Error(`Не удалось скачать после ${attempts} попыток: ${lastError?.message || lastError}`);
 }
 
 async function fetchMedia(url) {
@@ -193,7 +254,7 @@ function fromBase64(value) {
   for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
   return bytes;
 }
-function mimeExtension(mime = '') { return ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'video/mp4': 'mp4', 'audio/mpeg': 'mp3' })[mime.split(';')[0]]; }
+function mimeExtension(mime = '') { return ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/avif': 'avif', 'video/mp4': 'mp4', 'video/webm': 'webm', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'application/pdf': 'pdf' })[mime.split(';')[0]]; }
 function urlExtension(url) { return new URL(url).pathname.match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'bin'; }
 function isDirectMediaUrl(value) {
   try {

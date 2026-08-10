@@ -28,3 +28,9 @@
 - Stable VK Toolkit platform
 - Firefox support
 - Public module documentation
+
+## v0.5.x — Attachments
+
+- Structured attachment metadata
+- CMID-linked filenames and download report
+- Photo, document, audio, voice-message, video and sticker support

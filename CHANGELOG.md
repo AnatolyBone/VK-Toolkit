@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- Structured photo, document, audio, voice-message, video and sticker attachment metadata.
+- Maximum-size photo and sticker selection.
+- Human-readable media filenames linked to source CMIDs.
+- Up to three download attempts for temporarily unavailable media.
+- Attachment types, names, CMIDs, MIME types and failure reasons in `archive.json`.
+
+### Changed
+
+- `dialog.json` now includes `conversation_message_id` for every message.
+- Unsupported or protected attachments remain available as original links instead of silently disappearing.
+
 ## 0.4.2
 
 ### Fixed

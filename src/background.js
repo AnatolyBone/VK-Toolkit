@@ -38,7 +38,7 @@ async function handleMediaMessage(message) {
 function isAllowedMediaUrl(value) {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && /(?:^|\.)(?:userapi\.com|vkuseraudio\.net|vkuserphoto\.ru|vkcdn\.ru|vkvideo\.ru)$/i.test(url.hostname);
+    return url.protocol === 'https:' && /(?:^|\.)(?:vk\.com|vk\.ru|userapi\.com|vkuseraudio\.net|vkuserphoto\.ru|vkcdn\.ru|vkvideo\.ru)$/i.test(url.hostname);
   } catch { return false; }
 }
 
