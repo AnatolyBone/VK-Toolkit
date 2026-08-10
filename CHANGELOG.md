@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Fixed
+
+- Range-specific export wizard fields now hide correctly instead of being forced visible by label styles.
+
 ## 0.6.0
 
 ### Added
