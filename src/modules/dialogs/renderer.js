@@ -20,7 +20,7 @@ export class DialogRenderer {
         #vk-toolkit-dialogs{position:fixed;right:18px;bottom:18px;z-index:2147483000;width:250px;padding:14px;color:#e7e9ea;background:#19191a;border:1px solid #3f4146;border-radius:12px;box-shadow:0 8px 32px #0007;font:13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}
         #vk-toolkit-dialogs[hidden]{display:none}#vk-toolkit-dialogs header{display:grid;font-size:14px;font-weight:700;margin-bottom:9px}#vk-toolkit-dialogs header small{overflow:hidden;color:#9ba1aa;font-size:11px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
         #vk-toolkit-dialogs .vkt-stats{display:grid;grid-template-columns:1fr auto;gap:3px 10px;color:#adb3bc;margin-bottom:10px}#vk-toolkit-dialogs .vkt-stats b{color:#fff;font-weight:600}
-        #vk-toolkit-dialogs .vkt-actions{display:flex;gap:7px}#vk-toolkit-dialogs button{flex:1;border:0;border-radius:8px;padding:8px;background:#447bba;color:#fff;cursor:pointer}#vk-toolkit-dialogs button[data-pause],#vk-toolkit-dialogs button[data-stop]{display:none;flex:0 0 34px;padding:8px 4px;background:#34373b}#vk-toolkit-dialogs[data-collecting] button[data-pause],#vk-toolkit-dialogs[data-collecting] button[data-stop]{display:block}#vk-toolkit-dialogs button:disabled{opacity:.55;cursor:not-allowed}
+        #vk-toolkit-dialogs .vkt-actions{display:flex;gap:7px}#vk-toolkit-dialogs button{flex:1;border:0;border-radius:8px;padding:8px;background:#447bba;color:#fff;cursor:pointer}#vk-toolkit-dialogs button[data-pause],#vk-toolkit-dialogs button[data-stop],#vk-toolkit-dialogs button[data-cancel-export]{display:none;flex:0 0 34px;padding:8px 4px;background:#34373b}#vk-toolkit-dialogs[data-collecting] button[data-pause],#vk-toolkit-dialogs[data-collecting] button[data-stop],#vk-toolkit-dialogs[data-exporting] button[data-cancel-export]{display:block}#vk-toolkit-dialogs button:disabled{opacity:.55;cursor:not-allowed}
         #vk-toolkit-dialogs .vkt-health{margin:-2px 0 9px;color:#9ba1aa;font-size:11px}#vk-toolkit-dialogs .vkt-health[data-state="ok"]{color:#72ca84}#vk-toolkit-dialogs .vkt-health[data-state="warn"]{color:#e5ae55}
         #vk-toolkit-dialogs .vkt-progress{height:4px;margin:-3px 0 10px;overflow:hidden;background:#34373b;border-radius:4px}#vk-toolkit-dialogs .vkt-progress i{display:block;width:0;height:100%;background:#4c8dd7;transition:width .2s}
         #vk-toolkit-dialogs .vkt-error{color:#ff7a7a;margin-top:8px;white-space:pre-wrap}
@@ -29,16 +29,18 @@ export class DialogRenderer {
       <div class="vkt-stats"><span>Получено:</span><b data-count>0 сообщений</b><span>CMID:</span><b data-range>—</b><span>Пропусков:</span><b data-gaps>0</b><span>Текст:</span><b data-size>0 КБ</b></div>
       <div class="vkt-progress" title="Охват CMID"><i data-progress></i></div>
       <div class="vkt-health" data-health data-state="idle">Сбор ещё не запускался</div>
-      <div class="vkt-actions"><button data-collect>Собрать</button><button data-pause title="Пауза">Ⅱ</button><button data-stop title="Остановить">■</button><button data-export disabled>ZIP</button></div><div class="vkt-error" hidden></div>`;
+      <div class="vkt-actions"><button data-collect>Собрать</button><button data-pause title="Пауза">Ⅱ</button><button data-stop title="Остановить сбор">■</button><button data-cancel-export title="Отменить экспорт">✕</button><button data-export disabled>ZIP</button></div><div class="vkt-error" hidden></div>`;
     document.documentElement.appendChild(this.root);
     this.collectButton = this.root.querySelector('[data-collect]');
     this.exportButton = this.root.querySelector('[data-export]');
     this.pauseButton = this.root.querySelector('[data-pause]');
     this.stopButton = this.root.querySelector('[data-stop]');
+    this.cancelExportButton = this.root.querySelector('[data-cancel-export]');
     this.collectButton.addEventListener('click', () => this.run(this.onCollect));
     this.exportButton.addEventListener('click', () => this.runExport());
     this.pauseButton.addEventListener('click', this.onPause);
     this.stopButton.addEventListener('click', this.onStop);
+    this.cancelExportButton.addEventListener('click', () => this.cancelExport());
     this.unsubscribers.push(this.collector.events.on('dialogs:progress', (stats) => this.update(stats)));
     this.unsubscribers.push(this.collector.events.on('dialogs:collecting', (state) => {
       this.root.toggleAttribute('data-collecting', state.active);
@@ -60,19 +62,36 @@ export class DialogRenderer {
     if (this.exporting) return;
     this.exporting = true;
     this.showError('');
+    this.cancelExportButton.disabled = false;
     this.exportButton.disabled = true;
     this.collectButton.disabled = true;
     this.root.toggleAttribute('data-exporting', true);
-    try { await this.onExport((detail) => this.showExportProgress(detail)); }
-    catch (error) { this.showError(error.message || String(error)); }
+    this.exportController = new AbortController();
+    try { await this.onExport((detail) => this.showExportProgress(detail), this.exportController.signal); }
+    catch (error) {
+      if (error?.name === 'AbortError' || this.exportController.signal.aborted) {
+        const health = this.root.querySelector('[data-health]');
+        health.dataset.state = 'warn'; health.textContent = 'Экспорт отменён · архив не создан';
+      } else this.showError(error.message || String(error));
+    }
     finally {
       this.exporting = false;
+      this.exportController = null;
+      this.cancelExportButton.disabled = false;
       this.root.toggleAttribute('data-exporting', false);
       this.setExportFormat(this.exportEncrypted);
       this.exportButton.disabled = this.collector.store.stats().count === 0;
       this.collectButton.disabled = Boolean(this.collector.collection.active);
       setTimeout(() => { if (!this.exporting) this.updateHealth(this.collector.store.stats(), this.collector.collection); }, 1800);
     }
+  }
+
+  cancelExport() {
+    if (!this.exporting || !this.exportController) return;
+    this.exportController.abort();
+    this.cancelExportButton.disabled = true;
+    const health = this.root.querySelector('[data-health]');
+    health.dataset.state = 'warn'; health.textContent = 'Отмена экспорта…';
   }
 
   showExportProgress(detail) {

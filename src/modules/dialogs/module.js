@@ -17,7 +17,7 @@ export default {
     const collector = new DialogCollector({ logger, events: ctx.events });
     const network = new DialogNetwork((payload) => collector.ingestNetwork(payload), logger);
     let exportInProgress = false;
-    const exportCurrent = async (onProgress) => {
+    const exportCurrent = async (onProgress, signal) => {
       if (exportInProgress) throw new Error('Экспорт уже выполняется');
       exportInProgress = true;
       try {
@@ -32,7 +32,7 @@ export default {
       const snapshot = collector.snapshot();
       const local = await chrome.storage.local.get('dialogArchiveState');
       const previous = local.dialogArchiveState?.[snapshot.peerId] || {};
-      const result = await exportDialog(snapshot, { logger, settings, password, onProgress, incrementalFrom: settings.incremental ? previous.lastCmid : null });
+      const result = await exportDialog(snapshot, { logger, settings, password, onProgress, signal, incrementalFrom: settings.incremental ? previous.lastCmid : null });
       if (result.maxCmid != null) {
         await chrome.storage.local.set({ dialogArchiveState: { ...(local.dialogArchiveState || {}), [snapshot.peerId]: { lastCmid: result.maxCmid, exportedAt: new Date().toISOString(), title: snapshot.title } } });
       }

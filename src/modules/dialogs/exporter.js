@@ -2,7 +2,8 @@ import { encryptBytes } from '../../core/encryption.js';
 
 const encoder = new TextEncoder();
 
-export async function exportDialog(snapshot, { logger, settings = {}, incrementalFrom = null, password = '', onProgress } = {}) {
+export async function exportDialog(snapshot, { logger, settings = {}, incrementalFrom = null, password = '', onProgress, signal } = {}) {
+  throwIfAborted(signal);
   notifyProgress(onProgress, { stage: 'preparing' });
   snapshot = prepareSnapshot(snapshot, settings, incrementalFrom);
   if (!snapshot.messages.length) throw new Error(incrementalFrom == null ? 'Нет сообщений для экспорта' : 'Новых сообщений после прошлого экспорта нет');
@@ -18,12 +19,14 @@ export async function exportDialog(snapshot, { logger, settings = {}, incrementa
     { name: `${folder}dialog.html`, data: asHtml(snapshot.messages, snapshot.peerId) },
     { name: `${folder}media/`, data: new Uint8Array() },
   ];
-  const media = await appendMedia(entries, dialog, folder, logger, onProgress);
+  const media = await appendMedia(entries, dialog, folder, logger, onProgress, signal);
+  throwIfAborted(signal);
   notifyProgress(onProgress, { stage: 'building', downloaded: media.downloaded, total: media.discovered, bytes: media.totalBytes });
   entries.push({ name: `${folder}viewer.html`, data: asViewer(snapshot.messages, snapshot, media.files) });
   const verificationTarget = await archiveManifest(snapshot, entries, media);
   entries.push({ name: `${folder}verify.html`, data: asVerifier(verificationTarget) });
   entries.push({ name: `${folder}archive.json`, data: pretty(await archiveManifest(snapshot, entries, media)) });
+  throwIfAborted(signal);
   const zip = createZip(entries);
   const encrypted = Boolean(settings.encrypt);
   if (encrypted) notifyProgress(onProgress, { stage: 'encrypting', bytes: zip.length });
@@ -183,12 +186,13 @@ function inferMediaType(url) {
 }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 
-async function appendMedia(entries, messages, folder, logger, onProgress) {
+async function appendMedia(entries, messages, folder, logger, onProgress, signal) {
   const maxTotalBytes = 200_000_000;
   const references = collectMediaReferences(messages);
   const report = { discovered: references.length, downloaded: 0, totalBytes: 0, limitBytes: maxTotalBytes, files: [], unavailable: [] };
   notifyProgress(onProgress, { stage: 'media', current: 0, total: references.length, downloaded: 0, bytes: 0 });
   for (let index = 0; index < references.length; index++) {
+    throwIfAborted(signal);
     const reference = references[index];
     if (!isDirectMediaUrl(reference.url)) {
       report.unavailable.push({ ...reference, reason: reference.url ? 'Вложение доступно только как ссылка' : 'URL вложения не найден' });
@@ -196,7 +200,7 @@ async function appendMedia(entries, messages, folder, logger, onProgress) {
       continue;
     }
     try {
-      const { data, contentType } = await fetchMediaWithRetry(reference.url, 3);
+      const { data, contentType } = await fetchMediaWithRetry(reference.url, 3, signal);
       if (report.totalBytes + data.length > maxTotalBytes) {
         report.unavailable.push({ ...reference, reason: 'Превышен общий лимит медиа 200 МБ' });
         continue;
@@ -234,22 +238,34 @@ function mediaPath(reference, index, extension) {
   return `media/cmid-${cmid}-${type}-${String(index + 1).padStart(4, '0')}${name ? `-${name}` : ''}.${extension}`;
 }
 
-async function fetchMediaWithRetry(url, attempts) {
+async function fetchMediaWithRetry(url, attempts, signal) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    try { return await fetchMedia(url); }
-    catch (error) { lastError = error; if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 500)); }
+    throwIfAborted(signal);
+    try { return await fetchMedia(url, signal); }
+    catch (error) { if (signal?.aborted) throw abortError(); lastError = error; if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 500)); }
   }
   throw new Error(`Не удалось скачать после ${attempts} попыток: ${lastError?.message || lastError}`);
 }
 
-async function fetchMedia(url) {
-  const meta = await chrome.runtime.sendMessage({ type: 'media:fetch', url });
+async function fetchMedia(url, signal) {
+  throwIfAborted(signal);
+  const requestId = crypto.randomUUID();
+  const cancel = () => chrome.runtime.sendMessage({ type: 'media:cancel', requestId }).catch(() => {});
+  signal?.addEventListener('abort', cancel, { once: true });
+  let meta;
+  try { meta = await chrome.runtime.sendMessage({ type: 'media:fetch', url, requestId }); }
+  finally { signal?.removeEventListener('abort', cancel); }
+  if (signal?.aborted) {
+    if (meta?.token) chrome.runtime.sendMessage({ type: 'media:release', token: meta.token }).catch(() => {});
+    throw abortError();
+  }
   if (!meta?.ok) throw new Error(meta?.error || 'Не удалось загрузить медиа');
   const output = new Uint8Array(meta.size);
   let offset = 0;
   try {
     for (let index = 0; index < meta.chunks; index++) {
+      throwIfAborted(signal);
       const response = await chrome.runtime.sendMessage({ type: 'media:chunk', token: meta.token, index });
       if (!response?.ok) throw new Error(response?.error || 'Не удалось получить часть медиа');
       const bytes = fromBase64(response.base64);
@@ -260,6 +276,9 @@ async function fetchMedia(url) {
     chrome.runtime.sendMessage({ type: 'media:release', token: meta.token }).catch(() => {});
   }
 }
+
+function throwIfAborted(signal) { if (signal?.aborted) throw abortError(); }
+function abortError() { const error = new Error('Экспорт отменён'); error.name = 'AbortError'; return error; }
 
 function fromBase64(value) {
   const binary = atob(value); const bytes = new Uint8Array(binary.length);

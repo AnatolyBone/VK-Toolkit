@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.2
+
+### Added
+
+- Cancel button for an active dialog export.
+- Abort propagation from the dialog panel through the exporter to the background CDN request.
+
+### Changed
+
+- Cancelled exports stop the media queue, release cached chunks and never download a partial archive.
+- The panel reports cancellation and becomes ready for a clean retry.
+
 ## 0.5.1
 
 ### Added
