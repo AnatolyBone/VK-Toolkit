@@ -89,7 +89,7 @@ async function archiveManifest(snapshot, entries, media) {
     files.push({ path: entry.name.replace(/^VK Dialog Export\//, ''), bytes: data.length, sha256: await sha256(data) });
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generator: { name: 'VK Toolkit', version: chrome.runtime.getManifest().version },
     exportedAt: new Date().toISOString(),
     peerId: snapshot.peerId,
@@ -103,14 +103,17 @@ async function archiveManifest(snapshot, entries, media) {
         coverage: snapshot.stats.coverage,
         missingCount: snapshot.stats.gaps || 0,
         missingRanges: snapshot.stats.missingRanges || [],
-        probablyUncollectedCount: snapshot.stats.uncollected || 0,
-        probablyUncollectedRanges: snapshot.stats.uncollectedRanges || [],
+        historyStartReached: Boolean(snapshot.collection?.reachedStart || snapshot.collection?.status === 'complete'),
+        unavailableCount: snapshot.collection?.reachedStart || snapshot.collection?.status === 'complete' ? snapshot.stats.uncollected || 0 : 0,
+        unavailableRanges: snapshot.collection?.reachedStart || snapshot.collection?.status === 'complete' ? snapshot.stats.uncollectedRanges || [] : [],
+        probablyUncollectedCount: snapshot.collection?.reachedStart || snapshot.collection?.status === 'complete' ? 0 : snapshot.stats.uncollected || 0,
+        probablyUncollectedRanges: snapshot.collection?.reachedStart || snapshot.collection?.status === 'complete' ? [] : snapshot.stats.uncollectedRanges || [],
         collectedSegments: snapshot.stats.segments || [],
       },
       sources,
     },
     media,
-    note: 'Short CMID gaps can be deleted or service messages. Large ranges are marked as probably uncollected and should be checked by continuing history collection.',
+    note: 'CMID is not guaranteed to be continuous. When the beginning of VK history is reached, absent ranges are classified as unavailable rather than uncollected.',
     files,
   };
 }

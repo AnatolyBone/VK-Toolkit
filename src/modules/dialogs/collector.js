@@ -12,7 +12,7 @@ export class DialogCollector {
     this.restoreToken = 0;
     this.saveTimer = null;
     this.restored = false;
-    this.collection = { active: false, paused: false, cancelled: false, iteration: 0, unchanged: 0, status: 'idle' };
+    this.collection = { active: false, paused: false, cancelled: false, reachedStart: false, iteration: 0, unchanged: 0, status: 'idle' };
   }
 
   start() {
@@ -72,7 +72,7 @@ export class DialogCollector {
       const added = this.store.addMany(saved.messages);
       this.restored = added > 0;
       if (added) {
-        this.collection = { ...this.collection, status: 'restored' };
+        this.collection = { ...this.collection, reachedStart: Boolean(saved.reachedStart), status: saved.reachedStart ? 'complete' : 'restored' };
         this.events.emit('dialogs:progress', this.store.stats());
         this.events.emit('dialogs:collecting', { ...this.collection });
         this.logger.info('Restored collection session', peerId, added);
@@ -90,7 +90,7 @@ export class DialogCollector {
     if (this.peerId == null || !this.store.messages.size) return;
     const key = sessionKey(this.peerId);
     try {
-      await chrome.storage.local.set({ [key]: { peerId: this.peerId, title: getDialogTitle(), savedAt: new Date().toISOString(), messages: this.store.values() } });
+      await chrome.storage.local.set({ [key]: { peerId: this.peerId, title: getDialogTitle(), savedAt: new Date().toISOString(), reachedStart: Boolean(this.collection.reachedStart), messages: this.store.values() } });
     } catch (error) { this.logger.warn('Could not persist collection session', error); }
   }
 
@@ -101,7 +101,7 @@ export class DialogCollector {
     this.logger.info('History container selected', describeContainer(container));
     let unchanged = 0;
     let previousSignature = '';
-    this.setCollection({ active: true, paused: false, cancelled: false, iteration: 0, unchanged: 0, status: 'collecting' });
+    this.setCollection({ active: true, paused: false, cancelled: false, reachedStart: false, iteration: 0, unchanged: 0, status: 'collecting' });
     try {
       while (this.running && !this.collection.cancelled && unchanged < 5) {
         while (this.collection.paused && !this.collection.cancelled) await delay(200);
@@ -119,8 +119,10 @@ export class DialogCollector {
       }
       this.ingestDom();
       const stats = this.store.stats();
-      const status = this.collection.cancelled ? 'cancelled' : stats.min === 1 ? 'complete' : stats.min == null ? 'dom-only' : 'stable';
-      this.setCollection({ status });
+      const scrollTop = container === document.scrollingElement ? window.scrollY : container.scrollTop;
+      const reachedStart = !this.collection.cancelled && scrollTop <= 2 && unchanged >= 5;
+      const status = this.collection.cancelled ? 'cancelled' : stats.min === 1 || reachedStart ? 'complete' : stats.min == null ? 'dom-only' : 'stable';
+      this.setCollection({ status, reachedStart: status === 'complete' });
       return this.snapshot();
     } finally {
       this.setCollection({ active: false, paused: false });

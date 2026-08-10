@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.1
+
+### Fixed
+
+- Reaching the visual beginning of a VK conversation now completes collection even when the minimum available CMID is greater than 1.
+- Large CMID gaps are classified as unavailable after the history start is reached instead of producing an endless incomplete-history warning.
+- Completed collection state survives page reloads and is recorded explicitly in `archive.json` schema version 3.
+
 ## 0.9.0
 
 ### Added
