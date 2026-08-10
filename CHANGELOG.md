@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+### Fixed
+
+- Filter network messages by the active `peer_id` so CMIDs from different dialogs cannot mix.
+- Reset collected messages when navigating to another dialog.
+- Detect scrollable history containers used by current VK layouts.
+- Log the selected history container for easier selector diagnostics.
+
 ## 0.2.1
 
 ### Added

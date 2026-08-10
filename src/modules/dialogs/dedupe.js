@@ -5,6 +5,7 @@ export function messageKey(message) {
 
 export class MessageStore {
   constructor() { this.messages = new Map(); }
+  clear() { this.messages.clear(); }
   add(message) {
     const key = messageKey(message);
     const previous = this.messages.get(key);

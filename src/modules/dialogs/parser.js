@@ -1,6 +1,7 @@
 const MESSAGE_SELECTORS = [
   '[data-cmid]', '[data-conversation-message-id]', '.im-mess[data-msgid]',
-  '[data-testid="message"]', '[data-message-id]',
+  '[data-testid="message"]', '[data-testid*="message-item"]', '[data-message-id]',
+  '[class*="MessageItem"]', '[class*="HistoryMessage"]',
 ].join(',');
 
 export function isMessagesPage() {
@@ -19,14 +20,49 @@ export function getPeerId() {
 }
 
 export function findMessageContainer() {
+  const explicit = document.querySelector([
+    '[data-testid="conversation-messages"]', '[data-testid="message-list"]',
+    '[role="log"]', '.im-page--history', '.im-page--chat-body', '.MailHistory',
+    '[class*="ConversationMessages"]', '[class*="MessageList"]', '[class*="ChatHistory"]',
+  ].join(','));
+  const explicitScrollable = explicit && closestScrollable(explicit);
+  if (explicitScrollable) return explicitScrollable;
+
   const first = document.querySelector(MESSAGE_SELECTORS);
-  if (!first) return null;
-  let node = first.parentElement;
+  const messageScrollable = first && closestScrollable(first);
+  if (messageScrollable) return messageScrollable;
+
+  const candidates = [...document.querySelectorAll('main,section,div')]
+    .filter(isScrollable)
+    .filter((element) => !element.closest('#vk-toolkit-dialogs'))
+    .map((element) => ({ element, score: containerScore(element) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score);
+  return candidates[0]?.element || (isScrollable(document.scrollingElement) ? document.scrollingElement : null);
+}
+
+function closestScrollable(element) {
+  let node = element;
   while (node && node !== document.body) {
-    if (node.scrollHeight > node.clientHeight + 100 && getComputedStyle(node).overflowY !== 'visible') return node;
+    if (isScrollable(node)) return node;
     node = node.parentElement;
   }
-  return first.closest('[role="log"], .im-page--history, .im-mess-stack')?.parentElement || document.scrollingElement;
+  return null;
+}
+
+function isScrollable(element) {
+  if (!element || element.clientHeight < 180 || element.clientWidth < 280) return false;
+  const style = getComputedStyle(element);
+  return element.scrollHeight > element.clientHeight + 80 && /(auto|scroll|overlay)/.test(style.overflowY);
+}
+
+function containerScore(element) {
+  const rect = element.getBoundingClientRect();
+  if (rect.width < 280 || rect.height < 180 || rect.bottom < 0 || rect.top > innerHeight) return -1;
+  const messages = element.querySelectorAll(MESSAGE_SELECTORS).length;
+  const inputs = element.querySelectorAll('textarea,[contenteditable="true"],[data-testid*="composer"]').length;
+  const centerBonus = rect.left < innerWidth * 0.8 && rect.right > innerWidth * 0.35 ? 30 : 0;
+  return messages * 100 + inputs * 40 + centerBonus + Math.min(rect.height, 900) / 10;
 }
 
 export function parseDomMessages(root = document) {
@@ -57,6 +93,7 @@ export function parseNetworkPayload(payload) {
   walk(data, (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return;
     if (value.conversation_message_id == null && value.cmid == null) return;
+    if (value.date == null && value.from_id == null && value.fromId == null && value.sender_id == null && value.text == null && value.attachments == null) return;
     const fromId = value.from_id ?? value.fromId ?? value.sender_id;
     found.push(normalizeMessage({
       ...value,

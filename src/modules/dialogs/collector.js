@@ -8,10 +8,12 @@ export class DialogCollector {
     this.store = new MessageStore();
     this.observer = null;
     this.running = false;
+    this.peerId = null;
   }
 
   start() {
     this.running = true;
+    this.syncPeer();
     this.ingestDom();
     this.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) for (const node of mutation.addedNodes) {
@@ -23,21 +25,36 @@ export class DialogCollector {
 
   stop() { this.running = false; this.observer?.disconnect(); }
 
-  ingestNetwork(payload) { this.add(parseNetworkPayload(payload)); }
-  ingestDom(root = document) { this.add(parseDomMessages(root)); }
+  ingestNetwork(payload) { this.syncPeer(); this.add(parseNetworkPayload(payload)); }
+  ingestDom(root = document) { this.syncPeer(); this.add(parseDomMessages(root)); }
   add(messages) {
-    const added = this.store.addMany(messages);
+    const currentPeer = this.peerId;
+    const relevant = messages.filter((message) => {
+      if (currentPeer == null) return false;
+      return message.peer_id == null || Number(message.peer_id) === currentPeer;
+    });
+    const added = this.store.addMany(relevant);
     if (added) this.events.emit('dialogs:progress', this.store.stats());
     return added;
   }
 
   snapshot() {
-    return { peerId: getPeerId(), messages: this.store.values(), stats: this.store.stats() };
+    return { peerId: this.peerId, messages: this.store.values(), stats: this.store.stats() };
+  }
+
+  syncPeer() {
+    const peerId = getPeerId();
+    if (peerId === this.peerId) return;
+    this.peerId = peerId;
+    this.store.clear();
+    this.events.emit('dialogs:progress', this.store.stats());
+    this.logger.info('Active peer changed', peerId);
   }
 
   async collectFullHistory() {
     const container = findMessageContainer();
     if (!container) throw new Error('Контейнер сообщений не найден');
+    this.logger.info('History container selected', describeContainer(container));
     let unchanged = 0;
     let previousSignature = '';
     this.events.emit('dialogs:collecting', true);
@@ -58,6 +75,11 @@ export class DialogCollector {
       this.events.emit('dialogs:collecting', false);
     }
   }
+}
+
+function describeContainer(element) {
+  if (element === document.scrollingElement) return 'document.scrollingElement';
+  return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${element.className ? `.${String(element.className).trim().split(/\s+/).slice(0, 3).join('.')}` : ''}`;
 }
 
 function waitForChanges(container, timeout) {
