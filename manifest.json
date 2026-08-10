@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VK Toolkit",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Модульный набор инструментов для VK.",
   "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": [
@@ -10,8 +10,15 @@
     "https://vk.com/*",
     "https://m.vk.com/*",
     "https://*.userapi.com/*",
-    "https://*.vkuseraudio.net/*"
+    "https://*.vkuseraudio.net/*",
+    "https://*.vkuserphoto.ru/*",
+    "https://*.vkcdn.ru/*",
+    "https://*.vkvideo.ru/*"
   ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "VK Toolkit",
     "default_popup": "src/popup/popup.html"

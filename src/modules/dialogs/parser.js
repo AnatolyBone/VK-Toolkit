@@ -95,7 +95,11 @@ export function parseDomMessage(element) {
   const dateNode = element.querySelector('time, .ConvoMessageInfoWithoutBubbles__date');
   const time = dateNode?.dateTime || dateNode?.getAttribute('datetime') || normalizeVisibleDate(dateNode?.textContent);
   const timestamp = numberFrom(element.dataset.date || element.dataset.timestamp);
-  const attachments = [...element.querySelectorAll('a[href], img[src], video[src]')]
+  const attachments = [...element.querySelectorAll([
+    '[class*="Attachment"] a[href]', '[class*="Attachment"] img[src]', '[class*="Attachment"] video[src]', '[class*="Attachment"] audio[src]',
+    '[class*="MediaGrid"] a[href]', '[class*="MediaGrid"] img[src]', '[class*="Photo"] img[src]',
+    '.MessageText a[href]', 'video[src]', 'audio[src]',
+  ].join(','))]
     .map((node) => node.href || node.currentSrc || node.src).filter(Boolean);
   const text = (textNode || element).textContent?.trim() || '';
   if (!cmid && !id && !text) return null;

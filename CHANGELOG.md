@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- Dialog title and `peer_id` preview in the collection panel.
+- Human-readable CMID completeness status before export.
+
+### Changed
+
+- Disable ZIP export until at least one message has been collected.
+
+### Archive
+
+- Added local `viewer.html` with search, author filter, CMID navigation and themes.
+- Added `analytics.json` with activity, author, attachment and word statistics.
+- Added incremental export state stored in `chrome.storage.local`.
+- Added author anonymization and attachment exclusion controls.
+- Added background media downloads with chunking and a 30 MB per-file limit.
+
 ## 0.2.4
 
 ### Added

@@ -1,7 +1,11 @@
+const utf8Encoder = new TextEncoder();
+
 export class DialogRenderer {
-  constructor({ collector, onCollect, onExport }) {
+  constructor({ collector, onCollect, onPause, onStop, onExport }) {
     this.collector = collector;
     this.onCollect = onCollect;
+    this.onPause = onPause;
+    this.onStop = onStop;
     this.onExport = onExport;
     this.unsubscribers = [];
   }
@@ -12,23 +16,33 @@ export class DialogRenderer {
     this.root.innerHTML = `
       <style>
         #vk-toolkit-dialogs{position:fixed;right:18px;bottom:18px;z-index:2147483000;width:250px;padding:14px;color:#e7e9ea;background:#19191a;border:1px solid #3f4146;border-radius:12px;box-shadow:0 8px 32px #0007;font:13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}
-        #vk-toolkit-dialogs[hidden]{display:none}#vk-toolkit-dialogs header{font-size:14px;font-weight:700;margin-bottom:9px}
+        #vk-toolkit-dialogs[hidden]{display:none}#vk-toolkit-dialogs header{display:grid;font-size:14px;font-weight:700;margin-bottom:9px}#vk-toolkit-dialogs header small{overflow:hidden;color:#9ba1aa;font-size:11px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
         #vk-toolkit-dialogs .vkt-stats{display:grid;grid-template-columns:1fr auto;gap:3px 10px;color:#adb3bc;margin-bottom:10px}#vk-toolkit-dialogs .vkt-stats b{color:#fff;font-weight:600}
-        #vk-toolkit-dialogs .vkt-actions{display:flex;gap:7px}#vk-toolkit-dialogs button{flex:1;border:0;border-radius:8px;padding:8px;background:#447bba;color:#fff;cursor:pointer}#vk-toolkit-dialogs button:disabled{opacity:.55;cursor:wait}
+        #vk-toolkit-dialogs .vkt-actions{display:flex;gap:7px}#vk-toolkit-dialogs button{flex:1;border:0;border-radius:8px;padding:8px;background:#447bba;color:#fff;cursor:pointer}#vk-toolkit-dialogs button[data-pause],#vk-toolkit-dialogs button[data-stop]{display:none;flex:0 0 34px;padding:8px 4px;background:#34373b}#vk-toolkit-dialogs[data-collecting] button[data-pause],#vk-toolkit-dialogs[data-collecting] button[data-stop]{display:block}#vk-toolkit-dialogs button:disabled{opacity:.55;cursor:not-allowed}
+        #vk-toolkit-dialogs .vkt-health{margin:-2px 0 9px;color:#9ba1aa;font-size:11px}#vk-toolkit-dialogs .vkt-health[data-state="ok"]{color:#72ca84}#vk-toolkit-dialogs .vkt-health[data-state="warn"]{color:#e5ae55}
         #vk-toolkit-dialogs .vkt-error{color:#ff7a7a;margin-top:8px;white-space:pre-wrap}
       </style>
-      <header>VK Toolkit · Диалог</header>
-      <div class="vkt-stats"><span>Получено:</span><b data-count>0 сообщений</b><span>CMID:</span><b data-range>—</b><span>Пропусков:</span><b data-gaps>0</b></div>
-      <div class="vkt-actions"><button data-collect>Собрать</button><button data-export>ZIP</button></div><div class="vkt-error" hidden></div>`;
+      <header><span>VK Toolkit · Диалог</span><small data-dialog-title>Определение диалога…</small></header>
+      <div class="vkt-stats"><span>Получено:</span><b data-count>0 сообщений</b><span>CMID:</span><b data-range>—</b><span>Пропусков:</span><b data-gaps>0</b><span>Текст:</span><b data-size>0 КБ</b></div>
+      <div class="vkt-health" data-health data-state="idle">Сбор ещё не запускался</div>
+      <div class="vkt-actions"><button data-collect>Собрать</button><button data-pause title="Пауза">Ⅱ</button><button data-stop title="Остановить">■</button><button data-export disabled>ZIP</button></div><div class="vkt-error" hidden></div>`;
     document.documentElement.appendChild(this.root);
     this.collectButton = this.root.querySelector('[data-collect]');
     this.exportButton = this.root.querySelector('[data-export]');
+    this.pauseButton = this.root.querySelector('[data-pause]');
+    this.stopButton = this.root.querySelector('[data-stop]');
     this.collectButton.addEventListener('click', () => this.run(this.onCollect));
     this.exportButton.addEventListener('click', () => this.run(this.onExport));
+    this.pauseButton.addEventListener('click', this.onPause);
+    this.stopButton.addEventListener('click', this.onStop);
     this.unsubscribers.push(this.collector.events.on('dialogs:progress', (stats) => this.update(stats)));
-    this.unsubscribers.push(this.collector.events.on('dialogs:collecting', (active) => {
-      this.collectButton.disabled = active;
-      this.collectButton.textContent = active ? 'Сбор…' : 'Собрать';
+    this.unsubscribers.push(this.collector.events.on('dialogs:collecting', (state) => {
+      this.root.toggleAttribute('data-collecting', state.active);
+      this.collectButton.disabled = state.active;
+      this.collectButton.textContent = state.active ? `Сбор · ${state.iteration}` : 'Собрать';
+      this.pauseButton.textContent = state.paused ? '▶' : 'Ⅱ';
+      this.pauseButton.title = state.paused ? 'Продолжить' : 'Пауза';
+      this.updateHealth(this.collector.store.stats(), state);
     }));
     this.update(this.collector.store.stats());
   }
@@ -37,13 +51,37 @@ export class DialogRenderer {
     this.showError('');
     try { await action(); } catch (error) { this.showError(error.message || String(error)); }
   }
+
   update(stats) {
     if (!this.root) return;
+    const snapshot = this.collector.snapshot();
+    this.root.querySelector('[data-dialog-title]').textContent = `${snapshot.title || 'Без названия'} · peer ${snapshot.peerId ?? '—'}`;
     this.root.querySelector('[data-count]').textContent = `${stats.count} сообщений`;
     this.root.querySelector('[data-range]').textContent = stats.min == null ? '—' : `${stats.min} – ${stats.max}`;
     this.root.querySelector('[data-gaps]').textContent = String(stats.gaps);
+    const textBytes = snapshot.messages.reduce((sum, message) => sum + utf8Encoder.encode(message.text || '').length, 0);
+    this.root.querySelector('[data-size]').textContent = textBytes < 1_000_000 ? `${Math.ceil(textBytes / 1024)} КБ` : `${(textBytes / 1_048_576).toFixed(1)} МБ`;
+    this.updateHealth(stats, snapshot.collection);
+    this.exportButton.disabled = stats.count === 0;
   }
+
+  updateHealth(stats, collection) {
+    const health = this.root.querySelector('[data-health]');
+    if (collection?.active) {
+      health.dataset.state = collection.paused ? 'warn' : 'idle';
+      health.textContent = collection.paused ? `Пауза · цикл ${collection.iteration}` : `Сбор истории · без изменений ${collection.unchanged}/5`;
+      return;
+    }
+    if (collection?.status === 'cancelled') { health.dataset.state = 'warn'; health.textContent = 'Сбор остановлен пользователем'; return; }
+    if (collection?.status === 'complete') { health.dataset.state = 'ok'; health.textContent = 'Достигнуто начало переписки'; return; }
+    if (collection?.status === 'stable' && stats.count) { health.dataset.state = stats.gaps ? 'warn' : 'ok'; health.textContent = stats.gaps ? `Сбор завершён · отсутствуют CMID: ${stats.gaps}` : 'Сбор завершён · диапазон непрерывный'; return; }
+    if (!stats.count) { health.dataset.state = 'idle'; health.textContent = 'Сбор ещё не запускался'; }
+    else if (stats.min == null) { health.dataset.state = 'warn'; health.textContent = 'DOM fallback: CMID пока не получены'; }
+    else if (stats.gaps) { health.dataset.state = 'warn'; health.textContent = `Отсутствующие CMID: ${stats.gaps}`; }
+    else { health.dataset.state = 'ok'; health.textContent = 'Диапазон CMID непрерывный'; }
+  }
+
   showError(message) { const node = this.root.querySelector('.vkt-error'); node.textContent = message; node.hidden = !message; }
-  setVisible(visible) { if (this.root) this.root.hidden = !visible; }
+  setVisible(visible) { if (this.root) { this.root.hidden = !visible; if (visible) this.update(this.collector.store.stats()); } }
   unmount() { this.unsubscribers.forEach((off) => off()); this.unsubscribers = []; this.root?.remove(); this.root = null; }
 }

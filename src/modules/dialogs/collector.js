@@ -9,6 +9,7 @@ export class DialogCollector {
     this.observer = null;
     this.running = false;
     this.peerId = null;
+    this.collection = { active: false, paused: false, cancelled: false, iteration: 0, unchanged: 0, status: 'idle' };
   }
 
   start() {
@@ -23,7 +24,7 @@ export class DialogCollector {
     this.observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  stop() { this.running = false; this.observer?.disconnect(); }
+  stop() { this.running = false; this.cancel(); this.observer?.disconnect(); }
 
   ingestNetwork(payload) { this.syncPeer(); this.add(parseNetworkPayload(payload)); }
   ingestDom(root = document) { this.syncPeer(); this.add(parseDomMessages(root)); }
@@ -39,12 +40,13 @@ export class DialogCollector {
   }
 
   snapshot() {
-    return { peerId: this.peerId, title: getDialogTitle(), messages: this.store.values(), stats: this.store.stats() };
+    return { peerId: this.peerId, title: getDialogTitle(), messages: this.store.values(), stats: this.store.stats(), collection: { ...this.collection } };
   }
 
   syncPeer() {
     const peerId = getPeerId();
     if (peerId === this.peerId) return;
+    if (this.collection.active) this.cancel();
     this.peerId = peerId;
     this.store.clear();
     this.events.emit('dialogs:progress', this.store.stats());
@@ -52,30 +54,54 @@ export class DialogCollector {
   }
 
   async collectFullHistory() {
+    if (this.collection.active) return this.snapshot();
     const container = findMessageContainer();
     if (!container) throw new Error('Контейнер сообщений не найден');
     this.logger.info('History container selected', describeContainer(container));
     let unchanged = 0;
     let previousSignature = '';
-    this.events.emit('dialogs:collecting', true);
+    this.setCollection({ active: true, paused: false, cancelled: false, iteration: 0, unchanged: 0, status: 'collecting' });
     try {
-      while (this.running && unchanged < 5) {
+      while (this.running && !this.collection.cancelled && unchanged < 5) {
+        while (this.collection.paused && !this.collection.cancelled) await delay(200);
+        if (this.collection.cancelled) break;
         this.ingestDom();
         const stats = this.store.stats();
         const signature = `${stats.count}:${stats.min}`;
         unchanged = signature === previousSignature ? unchanged + 1 : 0;
         previousSignature = signature;
+        this.setCollection({ iteration: this.collection.iteration + 1, unchanged });
+        if (stats.min === 1) break;
         if (container === document.scrollingElement) window.scrollTo(0, 0);
         else container.scrollTop = 0;
         await waitForChanges(container, 1400);
       }
       this.ingestDom();
+      const stats = this.store.stats();
+      const status = this.collection.cancelled ? 'cancelled' : stats.min === 1 ? 'complete' : stats.min == null ? 'dom-only' : 'stable';
+      this.setCollection({ status });
       return this.snapshot();
     } finally {
-      this.events.emit('dialogs:collecting', false);
+      this.setCollection({ active: false, paused: false });
     }
   }
+
+  togglePause() {
+    if (!this.collection.active) return;
+    this.setCollection({ paused: !this.collection.paused, status: this.collection.paused ? 'collecting' : 'paused' });
+  }
+
+  cancel() {
+    if (this.collection.active) this.setCollection({ cancelled: true, paused: false, status: 'cancelling' });
+  }
+
+  setCollection(patch) {
+    this.collection = { ...this.collection, ...patch };
+    this.events.emit('dialogs:collecting', { ...this.collection });
+  }
 }
+
+function delay(timeout) { return new Promise((resolve) => setTimeout(resolve, timeout)); }
 
 function describeContainer(element) {
   if (element === document.scrollingElement) return 'document.scrollingElement';
