@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3
+
+### Fixed
+
+- Parse messages rendered by the current `ConvoHistory` VK interface.
+- Collect author, text and visible date when VK omits message IDs from DOM attributes.
+- Extract CMID-capable message objects from React page data as a best-effort source.
+- Skip VK navigation links when downloading media to avoid CORS redirects during ZIP export.
+- Merge DOM fallback records into their network/CMID versions instead of counting messages twice.
+
 ## 0.2.2
 
 ### Fixed

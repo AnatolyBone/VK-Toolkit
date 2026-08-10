@@ -38,7 +38,7 @@ function attachmentUrl(item) {
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 
 async function appendMedia(entries, messages, folder, logger) {
-  const urls = [...new Set(messages.flatMap((m) => m.attachments || []).map(attachmentUrl).filter((url) => /^https:\/\//.test(url)))];
+  const urls = [...new Set(messages.flatMap((m) => m.attachments || []).map(attachmentUrl).filter(isDirectMediaUrl))];
   for (let index = 0; index < urls.length; index++) {
     try {
       const response = await fetch(urls[index], { credentials: 'omit' });
@@ -51,6 +51,14 @@ async function appendMedia(entries, messages, folder, logger) {
 }
 function mimeExtension(mime = '') { return ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'video/mp4': 'mp4', 'audio/mpeg': 'mp3' })[mime.split(';')[0]]; }
 function urlExtension(url) { return new URL(url).pathname.match(/\.([a-z0-9]{2,5})$/i)?.[1] || 'bin'; }
+function isDirectMediaUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return false;
+    if (/\.(?:jpe?g|png|gif|webp|avif|mp4|webm|mp3|ogg|m4a|wav)(?:$|[?#])/i.test(url.href)) return true;
+    return /(?:^|\.)(?:userapi\.com|vkuseraudio\.net|vkuserphoto\.ru|vkcdn\.ru)$/i.test(url.hostname);
+  } catch { return false; }
+}
 
 export function createZip(entries) {
   const chunks = []; const central = []; let offset = 0;

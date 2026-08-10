@@ -2,6 +2,7 @@ const MESSAGE_SELECTORS = [
   '[data-cmid]', '[data-conversation-message-id]', '.im-mess[data-msgid]',
   '[data-testid="message"]', '[data-testid*="message-item"]', '[data-message-id]',
   '[class*="MessageItem"]', '[class*="HistoryMessage"]',
+  '.ConvoHistory__messageBlock',
 ].join(',');
 
 export function isMessagesPage() {
@@ -74,9 +75,10 @@ export function parseDomMessage(element) {
   const cmid = numberFrom(element.dataset.cmid || element.dataset.conversationMessageId || element.getAttribute('data-cmid'));
   const id = numberFrom(element.dataset.msgid || element.dataset.messageId || element.getAttribute('data-msgid'));
   const peerId = numberFrom(element.dataset.peerId || element.dataset.peer) || getPeerId();
-  const textNode = element.querySelector('[class*="message__text"], .im-mess--text, [data-testid="message-text"]');
-  const authorNode = element.querySelector('[class*="author"], .im-mess-stack--pname, [data-testid="message-author"]');
-  const time = element.querySelector('time')?.dateTime || element.querySelector('time')?.getAttribute('datetime');
+  const textNode = element.querySelector('.MessageText, .ConvoMessageWithoutBubble__text, [class*="message__text"], .im-mess--text, [data-testid="message-text"]');
+  const authorNode = element.querySelector('.ConvoMessageHeader__authorLink, [class*="author"], .im-mess-stack--pname, [data-testid="message-author"]');
+  const dateNode = element.querySelector('time, .ConvoMessageInfoWithoutBubbles__date');
+  const time = dateNode?.dateTime || dateNode?.getAttribute('datetime') || normalizeVisibleDate(dateNode?.textContent);
   const timestamp = numberFrom(element.dataset.date || element.dataset.timestamp);
   const attachments = [...element.querySelectorAll('a[href], img[src], video[src]')]
     .map((node) => node.href || node.currentSrc || node.src).filter(Boolean);
@@ -92,12 +94,12 @@ export function parseNetworkPayload(payload) {
   const found = [];
   walk(data, (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return;
-    if (value.conversation_message_id == null && value.cmid == null) return;
+    if (value.conversation_message_id == null && value.conversationMessageId == null && value.cmid == null) return;
     if (value.date == null && value.from_id == null && value.fromId == null && value.sender_id == null && value.text == null && value.attachments == null) return;
     const fromId = value.from_id ?? value.fromId ?? value.sender_id;
     found.push(normalizeMessage({
       ...value,
-      conversation_message_id: value.conversation_message_id ?? value.cmid,
+      conversation_message_id: value.conversation_message_id ?? value.conversationMessageId ?? value.cmid,
       peer_id: value.peer_id ?? value.peerId ?? getPeerId(),
       author: value.author || profiles.get(Number(fromId)) || String(fromId || ''),
       attachments: value.attachments || [],
@@ -145,4 +147,12 @@ function numberFrom(value) {
   if (value == null || value === '') return null;
   const number = Number(String(value).match(/-?\d+/)?.[0]);
   return Number.isFinite(number) ? number : null;
+}
+
+function normalizeVisibleDate(value) {
+  const text = String(value || '').trim();
+  if (!/^\d{1,2}:\d{2}$/.test(text)) return text;
+  const [hours, minutes] = text.split(':').map(Number);
+  const date = new Date(); date.setHours(hours, minutes, 0, 0);
+  return date.toISOString();
 }
